@@ -1277,7 +1277,26 @@ fun LauncherViewModel.generateSupportPack(targetPath: String, versionId: String)
 
 /** 关掉崩溃窗并按崩溃时的版本再启一局。 */
 fun LauncherViewModel.relaunchAfterCrash(versionId: String, instanceId: String? = null) {
+    val crashed = _crashEvent.value
+    val javaPath = crashed?.javaPath.orEmpty()
+    val javaMajor = crashed?.javaMajor ?: 0
+    val javaArch = crashed?.javaArch.orEmpty().ifBlank { "x86_64" }
+    val kernel = crashed?.kernelId.orEmpty()
     clearCrashEvent()
+    if (javaPath.isNotEmpty() && javaMajor > 0) {
+        if (!instanceId.isNullOrEmpty()) {
+            val info = instances.value.find { it.getInstanceId() == instanceId }
+            if (info == null) {
+                _status.value = I18n.t("status.crash_relaunch_missing_instance")
+                return
+            }
+            launchWithSpecificJava(versionId, javaPath, javaMajor, javaArch, info.getInstanceDir(), info, null, kernel)
+        } else {
+            selectVersion(versionId)
+            launchWithSpecificJava(versionId, javaPath, javaMajor, javaArch, kernelId = kernel)
+        }
+        return
+    }
     if (!instanceId.isNullOrEmpty()) {
         val info = instances.value.find { it.getInstanceId() == instanceId }
         if (info == null) {

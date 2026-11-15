@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -19,10 +20,37 @@ pub struct ToolRequest {
     pub name: String,
     #[serde(default)]
     pub file_id: String,
+    #[serde(default, deserialize_with = "optional_usize")]
     pub start_line: Option<usize>,
+    #[serde(default, deserialize_with = "optional_usize")]
     pub end_line: Option<usize>,
     pub query: Option<String>,
+    #[serde(default, deserialize_with = "optional_usize")]
     pub context: Option<usize>,
+}
+
+fn optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match Option::<Value>::deserialize(deserializer)? {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .map(|value| Some(value as usize))
+            .ok_or_else(|| D::Error::custom("line number out of range")),
+        Some(Value::String(text)) => {
+            let text = text.trim();
+            if text.is_empty() {
+                Ok(None)
+            } else {
+                text.parse::<usize>()
+                    .map(Some)
+                    .map_err(|_| D::Error::custom("line number is not an integer"))
+            }
+        }
+        _ => Err(D::Error::custom("line number is not an integer")),
+    }
 }
 
 pub fn execute(files: &[LogFile], request: &ToolRequest) -> Value {
@@ -52,7 +80,7 @@ pub fn execute(files: &[LogFile], request: &ToolRequest) -> Value {
         }
         "grep_log_file" => {
             let query = request.query.as_deref().unwrap_or_default();
-            if query.is_empty() || query.len() > 1024 {
+            if query.trim().is_empty() || query.chars().count() > 256 {
                 return json!({ "error": "Supply a nonempty literal query of at most 256 characters." });
             }
             let query = query.to_lowercase();
@@ -159,5 +187,33 @@ mod tests {
                 .len(),
             0
         );
+    }
+
+    #[test]
+    fn numeric_strings_are_line_numbers() {
+        let request: ToolRequest = serde_json::from_str(
+            r#"{"name":"read_log_file","file_id":"log-1","start_line":"200","end_line":"202","context":"1"}"#,
+        )
+        .unwrap();
+        let result = execute(&[file()], &request);
+        let lines = result["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0]["line"], 200);
+        assert_eq!(lines[2]["line"], 202);
+    }
+
+    #[test]
+    fn query_limit_counts_characters() {
+        let mut request = ToolRequest {
+            name: "grep_log_file".into(),
+            file_id: "log-1".into(),
+            start_line: None,
+            end_line: None,
+            query: Some("错".repeat(256)),
+            context: None,
+        };
+        assert!(execute(&[file()], &request).get("error").is_none());
+        request.query = Some("错".repeat(257));
+        assert!(execute(&[file()], &request).get("error").is_some());
     }
 }

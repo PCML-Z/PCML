@@ -4,6 +4,9 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Axolotl 的日志诊断引擎。Gradle 用 cargo 把它编成本地库，这里只负责加载和传字符串。
@@ -12,6 +15,7 @@ import java.nio.file.StandardCopyOption;
 public final class LogAgentNative {
 
     private static boolean loaded;
+    private static final Set<Long> OPEN = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     private LogAgentNative() {}
 
@@ -24,7 +28,9 @@ public final class LogAgentNative {
 
     public static long open() {
         ensure();
-        return open0();
+        long session = open0();
+        if (session != 0) OPEN.add(session);
+        return session;
     }
 
     public static void addFile(long session, String name, String sourceType, String content) {
@@ -50,7 +56,7 @@ public final class LogAgentNative {
     }
 
     public static void close(long session) {
-        if (!loaded || session == 0) return;
+        if (!loaded || session == 0 || !OPEN.remove(session)) return;
         close0(session);
     }
 

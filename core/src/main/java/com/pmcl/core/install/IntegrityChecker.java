@@ -45,6 +45,7 @@ public final class IntegrityChecker {
      * 校验指定版本。
      */
     public Result check(String versionId) throws IOException {
+        com.pmcl.core.launch.GameDirResolver.requireSafeVersionId(versionId);
         Result result = new Result();
         Path versionDir = config.getVersionsDir().resolve(versionId);
         Path versionJson = versionDir.resolve(versionId + ".json");

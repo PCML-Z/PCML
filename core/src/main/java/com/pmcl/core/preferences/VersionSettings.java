@@ -69,6 +69,11 @@ public final class VersionSettings {
                 javaPath, extraArgs, windowWidth, windowHeight, fullscreenMode, debug);
     }
 
+    public VersionSettings withMaxMemoryMb(int maxMemoryMb) {
+        return new VersionSettings(displayName, gameDir, iconPath, minMemoryMb, maxMemoryMb,
+                javaPath, extraArgs, windowWidth, windowHeight, fullscreenMode, debug);
+    }
+
     public VersionSettings withDebug(DebugOptions debug) {
         return new VersionSettings(displayName, gameDir, iconPath, minMemoryMb, maxMemoryMb,
                 javaPath, extraArgs, windowWidth, windowHeight, fullscreenMode, debug);

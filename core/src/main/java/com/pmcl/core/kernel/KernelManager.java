@@ -730,12 +730,16 @@ public final class KernelManager {
                 count++;
                 long size = entry.getSize();
                 if (size > MAX_BYTES) throw new KernelException("too_large");
-                bytes += Math.max(0, size);
-                if (count > MAX_FILES || bytes > MAX_BYTES) throw new KernelException("too_large");
+                if (count > MAX_FILES || bytes >= MAX_BYTES) throw new KernelException("too_large");
                 Files.createDirectories(target.getParent());
                 try (InputStream in = file.getInputStream(entry)) {
-                    Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+                    bytes += com.pmcl.core.util.SafeZipExtractor.copyLimited(in, target, MAX_BYTES - bytes);
+                } catch (IOException e) {
+                    String message = e.getMessage() == null ? "" : e.getMessage();
+                    if (message.contains("exceeds size limit")) throw new KernelException("too_large");
+                    throw e;
                 }
+                if (bytes > MAX_BYTES) throw new KernelException("too_large");
             }
         }
     }

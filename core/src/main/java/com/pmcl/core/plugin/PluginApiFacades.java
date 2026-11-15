@@ -127,9 +127,7 @@ final class PluginApiFacades {
 
             @Override
             public Path resolveVersionDir(String versionId) {
-                if (versionId == null || versionId.isBlank()) {
-                    throw new IllegalArgumentException("versionId is blank");
-                }
+                com.pmcl.core.launch.GameDirResolver.requireSafeVersionId(versionId);
                 return core.getConfig().getVersionsDir().resolve(versionId);
             }
 
@@ -564,6 +562,12 @@ final class PluginApiFacades {
             @Override
             public void setMaxMemoryMb(int mb) {
                 gate.require("WRITE_SETTINGS");
+                if (mb < com.pmcl.core.preferences.Preferences.MAX_MEMORY_FLOOR
+                        || mb > com.pmcl.core.preferences.Preferences.MEMORY_CAP_MB) {
+                    throw new IllegalArgumentException("maxMemoryMb out of range");
+                }
+                int min = core.getPreferences().getMinMemoryMb();
+                if (min > 0 && mb < min) throw new IllegalArgumentException("maxMemoryMb below minMemoryMb");
                 core.getPreferences().setMaxMemoryMb(mb);
                 manager.fireEvent(new SettingsChangedEvent("maxMemoryMb", String.valueOf(mb)));
             }
@@ -571,6 +575,12 @@ final class PluginApiFacades {
             @Override
             public void setMinMemoryMb(int mb) {
                 gate.require("WRITE_SETTINGS");
+                if (mb < com.pmcl.core.preferences.Preferences.MIN_MEMORY_FLOOR
+                        || mb > com.pmcl.core.preferences.Preferences.MEMORY_CAP_MB) {
+                    throw new IllegalArgumentException("minMemoryMb out of range");
+                }
+                int max = core.getPreferences().getMaxMemoryMb();
+                if (max > 0 && mb > max) throw new IllegalArgumentException("minMemoryMb above maxMemoryMb");
                 core.getPreferences().setMinMemoryMb(mb);
                 manager.fireEvent(new SettingsChangedEvent("minMemoryMb", String.valueOf(mb)));
             }
@@ -1087,6 +1097,7 @@ final class PluginApiFacades {
             @Override
             public List<com.pmcl.plugin.api.PackSummary> listDatapacks(Path worldDir) {
                 try {
+                    worldDir = requireSaveWorld(worldDir);
                     List<com.pmcl.plugin.api.PackSummary> out = new ArrayList<>();
                     for (var p : core.datapacks().list(worldDir)) {
                         out.add(new com.pmcl.plugin.api.PackSummary(
@@ -1107,7 +1118,7 @@ final class PluginApiFacades {
             public void enableDatapack(Path worldDir, String fileName) {
                 gate.require("MANAGE_GAME_CONTENT");
                 try {
-                    core.datapacks().enable(worldDir, fileName);
+                    core.datapacks().enable(requireSaveWorld(worldDir), fileName);
                 } catch (Exception e) {
                     throw new RuntimeException("enableDatapack failed: " + e.getMessage(), e);
                 }
@@ -1117,7 +1128,7 @@ final class PluginApiFacades {
             public void disableDatapack(Path worldDir, String fileName) {
                 gate.require("MANAGE_GAME_CONTENT");
                 try {
-                    core.datapacks().disable(worldDir, fileName);
+                    core.datapacks().disable(requireSaveWorld(worldDir), fileName);
                 } catch (Exception e) {
                     throw new RuntimeException("disableDatapack failed: " + e.getMessage(), e);
                 }
@@ -2285,6 +2296,18 @@ final class PluginApiFacades {
                 return core.launch().killProcess(pid);
             }
         };
+    }
+
+    /** 数据包目录必须是某个 saves 下面、带 level.dat 的世界。 */
+    static Path requireSaveWorld(Path worldDir) {
+        if (worldDir == null) throw new IllegalArgumentException("worldDir is null");
+        Path dir = worldDir.toAbsolutePath().normalize();
+        Path parent = dir.getParent();
+        if (parent == null || parent.getFileName() == null || !"saves".equals(parent.getFileName().toString())
+                || !Files.isDirectory(dir) || !Files.isRegularFile(dir.resolve("level.dat"))) {
+            throw new IllegalArgumentException("worldDir is not a Minecraft world");
+        }
+        return dir;
     }
 
 }

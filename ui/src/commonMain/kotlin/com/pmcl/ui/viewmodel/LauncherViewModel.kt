@@ -1,6 +1,7 @@
 package com.pmcl.ui.viewmodel
 
 import com.google.gson.reflect.TypeToken
+import com.pmcl.core.automation.AutomationCommand
 import com.pmcl.core.LauncherConfig
 import com.pmcl.core.LauncherCore
 import com.pmcl.core.auth.Account
@@ -1728,7 +1729,11 @@ class LauncherViewModel {
         val versionId: String,
         val live: Boolean = false,
         val session: Long = 0L,
-        val instanceId: String? = null
+        val instanceId: String? = null,
+        val javaPath: String = "",
+        val javaMajor: Int = 0,
+        val javaArch: String = "",
+        val kernelId: String = ""
     )
     @PublishedApi internal val _crashEvent = MutableStateFlow<CrashEvent?>(null)
     val crashEvent: StateFlow<CrashEvent?> = _crashEvent.asStateFlow()
@@ -2334,7 +2339,7 @@ class LauncherViewModel {
      */
     fun refreshWallpaperColor(targetThemeState: com.pmcl.ui.theme.ThemeState? = null) {
         val ts = targetThemeState ?: themeState ?: return
-        com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] refreshWallpaperColor called, ts=${ts != null}")
+        com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] refreshWallpaperColor called")
         scope.launch {
             try {
                 _status.value = I18n.t("status.extracting_wallpaper_color")
@@ -2353,6 +2358,8 @@ class LauncherViewModel {
                 preferences.setMonetSeedColor(seedColor)
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] applySeedColor done, primary=${ts.dynamicColorScheme?.primary}")
                 _status.value = I18n.t("status.monet_applied", Integer.toHexString(seedColor).padStart(6, '0'))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 com.pmcl.core.theme.WallpaperColorProvider.diagLog("[VM] EXCEPTION: ${e.javaClass.name}: ${e.message}")
                 _status.value = I18n.t("status.wallpaper_color_failed", e.message ?: I18n.t("common.unknown"))
@@ -3135,6 +3142,12 @@ class LauncherViewModel {
                     return@launch
                 }
                 account = ensureLaunchAccount(account)
+                if (!account.isGenuine
+                    && com.pmcl.core.compliance.PremiumDownloads.isPremiumSourced(versionId)
+                ) {
+                    _status.value = I18n.t("status.premium_account_required", versionId)
+                    return@launch
+                }
                 val profile = withContext(Dispatchers.IO) {
                     if (snapDir != null && snapInfo != null) {
                         core.profileBuilder().buildInstance(
@@ -3224,10 +3237,30 @@ class LauncherViewModel {
                                 versionId = versionId,
                                 live = true,
                                 session = crashSession,
-                                instanceId = snapInfo?.instanceId
+                                instanceId = snapInfo?.instanceId,
+                                javaPath = javaPath,
+                                javaMajor = javaMajorVer,
+                                javaArch = javaArch,
+                                kernelId = kernelId
                             )
+                        } else if (crashLiveShown.get() && !ignoredCrashSessions.contains(crashSession)) {
+                            _crashEvent.update { ev ->
+                                if (ev != null && ev.live && ev.session == crashSession) {
+                                    val recent = instanceId?.let { id ->
+                                        instanceLogs[id]?.let { logs ->
+                                            synchronized(logs) { logs.takeLast(200).toList() }
+                                        }
+                                    } ?: _gameLogs.value.takeLast(200).map { it.text }
+                                    ev.copy(recentLogs = recent)
+                                } else ev
+                            }
                         }
                         try {
+                            if (line.contains("Sound engine started") || line.contains("Game took")) {
+                                _status.value = I18n.t("launch.game_running")
+                            } else if (line.contains("Reloading ResourceManager")) {
+                                _status.value = I18n.t("status.large_pack_loading")
+                            }
                             if (line.contains("Connecting to")) {
                                 val m = Regex("""Connecting to\s+([^,\s]+)(?:[,\s]+(\d+))?""").find(line)
                                 if (m != null) {
@@ -3241,7 +3274,7 @@ class LauncherViewModel {
                                 if (m != null) {
                                     core.playTimeTracker().updateSessionWorld(versionId, m.groupValues[1])
                                 }
-                            } else if (line.contains("Preparing spawn area")) {
+                            } else if (line.contains("Preparing spawn area") && !line.contains("Connecting to")) {
                                 core.playTimeTracker().updateSessionWorld(versionId, "Singleplayer")
                             }
                         } catch (_: Throwable) { }
@@ -3265,6 +3298,12 @@ class LauncherViewModel {
                     ignoredCrashSessions.add(crashSession)
                 } else {
                     _status.value = I18n.t("status.game_exited", exitCode)
+                    launchAutomation(
+                        AutomationCommand.TRIGGER_AFTER_GAME,
+                        versionId,
+                        profile.gameDir?.toString() ?: "",
+                        exitCode
+                    )
                     if (ignoredCrashSessions.remove(crashSession)) {
                         if (_crashEvent.value?.session == crashSession) {
                             _crashEvent.value = null
@@ -3305,7 +3344,11 @@ class LauncherViewModel {
                                     versionId = versionId,
                                     live = false,
                                     session = crashSession,
-                                    instanceId = snapInfo?.instanceId
+                                    instanceId = snapInfo?.instanceId,
+                                    javaPath = javaPath,
+                                    javaMajor = javaMajorVer,
+                                    javaArch = javaArch,
+                                    kernelId = kernelId
                                 )
                             }
                             _crashReports.value = withContext(Dispatchers.IO) {
@@ -3320,8 +3363,10 @@ class LauncherViewModel {
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                _status.value = I18n.t("status.launch_failed", e.message ?: I18n.t("common.unknown"))
-                appendGameLog("启动失败: ${e.message}")
+                val root = if (e is java.util.concurrent.CompletionException && e.cause != null) e.cause!! else e
+                val errMsg = root.message ?: root.javaClass.simpleName
+                _status.value = I18n.t("status.launch_failed", errMsg)
+                appendGameLog("[错误] $errMsg")
             } finally {
                 launchPreparing.set(false)
                 _instanceLaunching.value = null
@@ -3344,6 +3389,8 @@ class LauncherViewModel {
                         loadInstances()
                     } catch (t: Throwable) {
                         System.err.println("[VM] 实例游玩时长回写失败: ${t.message}")
+                        _status.value = I18n.t("status.instance_playtime_save_failed",
+                            t.message ?: I18n.t("common.unknown"))
                     }
                 }
                 clearLaunchInstanceContext()
@@ -3493,6 +3540,8 @@ class LauncherViewModel {
                 _javaDownloadStatus.value = "完成：$detected"
                 _status.value = I18n.t("status.java_install_complete", version)
                 scanJavaInstallations()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 _javaDownloadStatus.value = "失败：${e.message}"
                 _status.value = I18n.t("status.java_download_failed", version, e.message ?: I18n.t("common.unknown"))
@@ -3515,7 +3564,7 @@ class LauncherViewModel {
      * 手动选择 Java 时，装好后切到这个运行时。
      */
     fun downloadFoojayJava(distro: String, build: com.pmcl.core.runtime.FoojayDisco.Build) {
-        if (_javaDownloading.value || build == null || distro.isNullOrBlank()) return
+        if (_javaDownloading.value || distro.isBlank()) return
         val major = build.major
         val javaVersion = build.javaVersion?.ifBlank { major.toString() } ?: major.toString()
         scope.launch {
@@ -3551,6 +3600,8 @@ class LauncherViewModel {
                     javaBin?.toString() ?: ""
                 )
                 _status.value = I18n.t("status.java_install_complete", major)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 val detail = generateSequence(e) { it.cause }
                     .mapNotNull { it.message }
@@ -3772,8 +3823,10 @@ class LauncherViewModel {
             try {
                 val r = withContext(Dispatchers.IO) { core.integrity().check(versionId) }
                 _integrityResult.value = r
-                _status.value = if (r.isOk()) I18n.t("status.integrity_check_passed")
+                val message = if (r.isOk()) I18n.t("status.integrity_check_passed")
                     else I18n.t("status.integrity_issues_found", r.issueCount, r.missing.size, r.hashMismatch.size)
+                _status.value = message
+                _recoveryMessage.value = message
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.integrity_check_failed", e.message ?: I18n.t("common.unknown"))
             }
@@ -3804,9 +3857,9 @@ class LauncherViewModel {
      */
     fun executeRecoveryAction(action: CrashAnalyzer.RecoveryAction, versionId: String, instanceId: String? = null) {
         when (action.getType()) {
-            CrashAnalyzer.RecoveryType.INCREASE_MEMORY -> increaseMemory()
+            CrashAnalyzer.RecoveryType.INCREASE_MEMORY -> increaseMemory(versionId)
             CrashAnalyzer.RecoveryType.SWITCH_JAVA -> {
-                _navigationRequest.value = "settings"
+                requestSecondaryNav("settings", "java")
                 _recoveryMessage.value = I18n.t("recovery.jump_to_settings_java", versionId)
             }
             CrashAnalyzer.RecoveryType.CHECK_MOD_CONFLICTS -> {
@@ -3821,8 +3874,11 @@ class LauncherViewModel {
             CrashAnalyzer.RecoveryType.REINSTALL_VERSION -> reinstallVersion(versionId)
             CrashAnalyzer.RecoveryType.CLEAR_GAME_CONFIG -> clearGameConfig(versionId, instanceId)
             CrashAnalyzer.RecoveryType.SHARE_LOGS -> {
-                shareLogs()
-                _recoveryMessage.value = I18n.t("recovery.uploading_logs")
+                val lines = _crashEvent.value?.recentLogs?.takeIf { it.isNotEmpty() }
+                shareLogs(lines)
+                if (_logSharing.value) {
+                    _recoveryMessage.value = I18n.t("recovery.uploading_logs")
+                }
             }
             CrashAnalyzer.RecoveryType.OPEN_MODS_PAGE -> {
                 _navigationRequest.value = "content"
@@ -3835,17 +3891,24 @@ class LauncherViewModel {
         }
     }
 
-    /** 增大最大内存 1024MB（上限为系统可用内存的 80%） */
-    fun increaseMemory() {
-        val current = preferences.getMaxMemoryMb()
+    /** 增大最大内存 1024MB（上限为系统可用内存的 80%）。版本自己写过上限时改那一份。 */
+    fun increaseMemory(versionId: String? = null) {
+        val versionSettings = versionId?.takeIf { it.isNotBlank() }?.let { preferences.getVersionSettings(it) }
+        val versionMax = versionSettings?.maxMemoryMb ?: 0
+        val current = if (versionMax > 0) versionMax else preferences.getMaxMemoryMb()
         val sysMax = with(core.runtime()) { getTotalMemoryMb() }
-        val ceiling = (sysMax * 0.8).toInt()
+        val ceiling = (sysMax * 0.8).toInt().coerceAtMost(com.pmcl.core.preferences.Preferences.MEMORY_CAP_MB)
         val target = (current + 1024).coerceAtMost(ceiling)
         if (target <= current) {
             _recoveryMessage.value = I18n.t("recovery.memory_at_limit", ceiling, sysMax)
+        } else if (versionMax > 0 && versionSettings != null && !versionId.isNullOrBlank()) {
+            preferences.setVersionSettings(versionId, versionSettings.withMaxMemoryMb(target))
+            _recoveryMessage.value = I18n.t("recovery.memory_adjusted", current, target)
+            noteSettingsChanged("maxMemory")
         } else {
             preferences.setMaxMemoryMb(target)
             _recoveryMessage.value = I18n.t("recovery.memory_adjusted", current, target)
+            noteSettingsChanged("maxMemory")
         }
     }
 
@@ -4011,18 +4074,20 @@ class LauncherViewModel {
     /**
      * 上传当前游戏日志到 paste.gg，返回可分享的 URL。
      */
-    fun shareLogs() {
+    fun shareLogs(lines: List<String>? = null) {
         if (_logSharing.value) return
-        val logs = _gameLogs.value
-        if (logs.isEmpty()) {
+        val texts = lines?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+            ?: _gameLogs.value.map { it.text }
+        if (texts.isEmpty()) {
             _status.value = I18n.t("status.no_logs_to_share")
+            _recoveryMessage.value = I18n.t("status.no_logs_to_share")
             return
         }
         _logSharing.value = true
         _shareUrl.value = null
         scope.launch {
             try {
-                val content = redactSensitiveLogContent(logs.map { it.text }.joinToString("\n"))
+                val content = redactSensitiveLogContent(texts.joinToString("\n"))
                 val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
                 val url = core.pastebin().upload(content, name)
                 _shareUrl.value = url

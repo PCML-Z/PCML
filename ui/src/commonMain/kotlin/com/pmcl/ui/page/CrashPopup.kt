@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +73,8 @@ fun GameCrashPopup(vm: LauncherViewModel) {
     val event by vm.crashEvent.collectAsState()
     val packBusy by vm.supportPackBusy.collectAsState()
     val packPath by vm.supportPackPath.collectAsState()
+    val recovery by vm.recoveryMessage.collectAsState()
+    val shareUrl by vm.shareUrl.collectAsState()
     val ev = event ?: return
 
     val reportBody = remember(ev) {
@@ -195,9 +198,26 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                 CrashAiRepair(
                     vm = vm,
                     versionId = ev.versionId,
+                    session = ev.session,
                     report = ev.report?.content?.takeIf { it.isNotBlank() && !ev.live } ?: "",
                     logs = ev.recentLogs.joinToString("\n")
                 )
+                if (!recovery.isNullOrBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        recovery ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CrashOnRed
+                    )
+                }
+                if (!shareUrl.isNullOrBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        shareUrl ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = CrashOnRed
+                    )
+                }
                 if (packPath != null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -247,6 +267,7 @@ fun GameCrashPopup(vm: LauncherViewModel) {
                     }
                     Button(
                         onClick = { vm.relaunchAfterCrash(ev.versionId, ev.instanceId) },
+                        enabled = !ev.live,
                         modifier = Modifier.weight(1f),
                         colors = fill
                     ) {
@@ -270,15 +291,18 @@ fun GameCrashPopup(vm: LauncherViewModel) {
 private fun CrashAiRepair(
     vm: LauncherViewModel,
     versionId: String,
+    session: Long,
     report: String,
     logs: String
 ) {
     val scope = rememberCoroutineScope()
-    val cancelled = remember(versionId, report, logs) { AtomicBoolean(false) }
-    var busy by remember(versionId, report, logs) { mutableStateOf(false) }
-    var status by remember(versionId, report, logs) { mutableStateOf("") }
-    var outcome by remember(versionId, report, logs) { mutableStateOf<CrashRepair.Outcome?>(null) }
-    DisposableEffect(versionId, report, logs) {
+    val reportNow = rememberUpdatedState(report)
+    val logsNow = rememberUpdatedState(logs)
+    val cancelled = remember(versionId, session) { AtomicBoolean(false) }
+    var busy by remember(versionId, session) { mutableStateOf(false) }
+    var status by remember(versionId, session) { mutableStateOf("") }
+    var outcome by remember(versionId, session) { mutableStateOf<CrashRepair.Outcome?>(null) }
+    DisposableEffect(versionId, session) {
         onDispose { cancelled.set(true) }
     }
     val outline = ButtonDefaults.outlinedButtonColors(contentColor = CrashOnRed)
@@ -295,31 +319,39 @@ private fun CrashAiRepair(
             status = I18n.t("crash.ai.working")
             outcome = null
             scope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    val endpoint = AgentModel.load(vm.config.workDir)
-                    val context = vm.core.plugins().appContext(
-                        "pmcl.crash-repair",
-                        vm.config.workDir.resolve("crash-repair"),
-                        AgentApi.permissions()
-                    )
-                    val modsArgs = JsonArray()
-                    modsArgs.add(versionId)
-                    val modsDir = modsDirectory(AgentApi.invoke(context, "mods.resolveModsDir", modsArgs))
-                    CrashRepair.investigate(endpoint, versionId, report, logs, object : CrashRepair.Hooks {
-                        override fun cancelled(): Boolean = cancelled.get()
-                        override fun progress(text: String) {
-                            scope.launch { status = text }
-                        }
-                        override fun call(method: String, args: JsonArray): String {
-                            return AgentApi.invoke(context, method, args)
-                        }
-                    }, modsDir)
+                try {
+                    val result = withContext(Dispatchers.IO) {
+                        val endpoint = AgentModel.load(vm.config.workDir)
+                        val context = vm.core.plugins().appContext(
+                            "pmcl.crash-repair",
+                            vm.config.workDir.resolve("crash-repair"),
+                            AgentApi.permissions()
+                        )
+                        val modsArgs = JsonArray()
+                        modsArgs.add(versionId)
+                        val modsDir = modsDirectory(AgentApi.invoke(context, "mods.resolveModsDir", modsArgs))
+                        CrashRepair.investigate(endpoint, versionId, reportNow.value, logsNow.value, object : CrashRepair.Hooks {
+                            override fun cancelled(): Boolean = cancelled.get()
+                            override fun progress(text: String) {
+                                scope.launch { status = text }
+                            }
+                            override fun call(method: String, args: JsonArray): String {
+                                return AgentApi.invoke(context, method, args)
+                            }
+                        }, modsDir)
+                    }
+                    if (cancelled.get()) return@launch
+                    busy = false
+                    status = ""
+                    outcome = result
+                    if (result.applied.isNotEmpty()) vm.refreshInstalledMods()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (cancelled.get()) return@launch
+                    busy = false
+                    status = e.message ?: ""
                 }
-                if (cancelled.get()) return@launch
-                busy = false
-                status = ""
-                outcome = result
-                if (result.applied.isNotEmpty()) vm.refreshInstalledMods()
             }
         },
         enabled = true,
@@ -396,9 +428,16 @@ private fun CrashAiRepair(
 
 private fun modsDirectory(raw: String): String? {
     val text = raw.trim()
-    if (text.isEmpty() || text == "null" || text.startsWith("不能") || text.startsWith("failed")) return null
-    val path = if (text.length >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
-        text.substring(1, text.length - 1)
+    if (text.isEmpty() || text == "null" || text.startsWith("不能") || text.startsWith("failed")
+        || text.startsWith("permission") || text.startsWith("unknown") || text.startsWith("bad_params")
+        || text.startsWith("api_unavailable")
+    ) return null
+    val path = if (text.startsWith("\"")) {
+        try {
+            com.google.gson.JsonParser.parseString(text).asString
+        } catch (_: Exception) {
+            return null
+        }
     } else {
         text
     }

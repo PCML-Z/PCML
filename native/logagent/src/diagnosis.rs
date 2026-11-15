@@ -105,7 +105,7 @@ const RULES: &[Rule] = &[
     },
     Rule {
         id: "hs_err_jvm",
-        phase: 1,
+        phase: 4,
         patterns: &["jvm.dll"],
     },
     Rule {
@@ -126,7 +126,7 @@ const RULES: &[Rule] = &[
     Rule {
         id: "hs_err_gpu_driver",
         phase: 1,
-        patterns: &["nglMultiDrawElementsBaseVertex", "0x0000"],
+        patterns: &["nglMultiDrawElementsBaseVertex"],
     },
     Rule {
         id: "opengl_unsupported",
@@ -1003,9 +1003,12 @@ fn read_zip_text<R: Read + std::io::Seek>(
     archive: &mut zip::ZipArchive<R>,
     path: &str,
 ) -> Option<String> {
-    let mut file = archive.by_name(path).ok()?;
+    let file = archive.by_name(path).ok()?;
+    if file.size() > 262_144 {
+        return None;
+    }
     let mut contents = String::new();
-    file.read_to_string(&mut contents).ok()?;
+    file.take(262_144).read_to_string(&mut contents).ok()?;
     Some(contents)
 }
 

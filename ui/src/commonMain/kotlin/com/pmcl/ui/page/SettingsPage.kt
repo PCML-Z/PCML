@@ -93,12 +93,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
     val themeState = LocalThemeState.current
     val settingsPulse by vm.settingsPulse.collectAsState()
 
-    var minMem by remember { mutableStateOf(pref.getMinMemoryMb().toString()) }
-    var maxMem by remember { mutableStateOf(pref.getMaxMemoryMb().toString()) }
-    var gcType by remember { mutableStateOf(pref.getGcType()) }
+    var minMem by remember(settingsPulse) { mutableStateOf(pref.getMinMemoryMb().toString()) }
+    var maxMem by remember(settingsPulse) { mutableStateOf(pref.getMaxMemoryMb().toString()) }
+    var gcType by remember(settingsPulse) { mutableStateOf(pref.getGcType()) }
     var forceG1 by remember(settingsPulse) { mutableStateOf(pref.isForceG1Gc()) }
     var useAikar by remember(settingsPulse) { mutableStateOf(pref.isUseAikarFlags()) }
-    var customArgs by remember { mutableStateOf(pref.getCustomJvmArgs()) }
+    var customArgs by remember(settingsPulse) { mutableStateOf(pref.getCustomJvmArgs()) }
     var language by remember { mutableStateOf(pref.getLanguage()) }
     var borderless by remember { mutableStateOf(pref.isBorderlessWindow()) }
     var segmentedLaunch by remember { mutableStateOf(pref.isUseSegmentedLaunchLayout()) }

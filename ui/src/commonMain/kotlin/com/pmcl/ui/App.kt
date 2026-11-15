@@ -40,6 +40,7 @@ import com.pmcl.ui.page.ContentHubPage
 import com.pmcl.ui.page.DownloadHubPage
 import com.pmcl.ui.page.EcxpPage
 import com.pmcl.ui.page.GameCrashPopup
+import com.pmcl.ui.page.GlobalLaunchDialogs
 import com.pmcl.ui.page.InstancesPage
 import com.pmcl.ui.page.LaunchPage
 import com.pmcl.ui.page.LockscreenLaunchPage
@@ -197,6 +198,7 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                     // 微软登录前的三步协议（下载页之外的入口统一在这里弹）
                     MicrosoftConsentGateDialog(vm)
                     GameCrashPopup(vm)
+                    GlobalLaunchDialogs(vm)
                 }
             }
         }

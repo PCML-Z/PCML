@@ -52,8 +52,6 @@ fun LockscreenLaunchPage(
     val status by vm.status.collectAsState()
     val installing by vm.installing.collectAsState()
     val installProgress by vm.installProgress.collectAsState()
-    val compatOptions by vm.compatOptions.collectAsState()
-    val compatTitle by vm.compatTitle.collectAsState()
 
     val cardShape = RoundedCornerShape(4.dp)
 
@@ -289,58 +287,4 @@ fun LockscreenLaunchPage(
         }
     }
 
-    // ===== 兼容性选项对话框 =====
-    if (compatOptions.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { vm.dismissCompatOptions() },
-            title = { Text(compatTitle) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    compatOptions.forEach { option ->
-                        Card(
-                            onClick = { vm.invokeCompatOption(option) },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = glassCardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            elevation = glassCardElevation(),
-                            modifier = Modifier.fillMaxWidth().glassCardBorder()
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(option.title, style = MaterialTheme.typography.titleSmall,
-                                     fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(4.dp))
-                                Text(option.description, style = MaterialTheme.typography.bodySmall,
-                                     color = MaterialTheme.colorScheme.outline)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                OutlinedButton(onClick = { vm.dismissCompatOptions() }) {
-                    Text(I18n.t("common.cancel"))
-                }
-            }
-        )
-    }
-
-    val javaDownloading by vm.javaDownloading.collectAsState()
-    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
-    if (javaDownloading) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("正在下载 Java 运行时") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(javaDownloadStatus.ifBlank { "准备中…" },
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-            },
-            confirmButton = {},
-            dismissButton = {}
-        )
-    }
 }

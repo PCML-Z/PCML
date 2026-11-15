@@ -184,6 +184,8 @@ public final class FriendPeerDiscovery implements AutoCloseable {
 
         while (running.get() && socket != null && !socket.isClosed()) {
             try {
+                // receive 会把 length 改成这一包的实际长度。不重置的话，短报文之后的发现包会被截断。
+                packet.setLength(buffer.length);
                 socket.receive(packet);
                 String json = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
                 String senderIp = packet.getAddress().getHostAddress();
@@ -227,6 +229,10 @@ public final class FriendPeerDiscovery implements AutoCloseable {
             } catch (IOException e) {
                 if (running.get()) {
                     System.err.println("[FriendDiscovery] 接收错误: " + e.getMessage());
+                }
+            } catch (RuntimeException e) {
+                if (running.get()) {
+                    System.err.println("[FriendDiscovery] 忽略无效报文: " + e.getMessage());
                 }
             }
         }

@@ -196,20 +196,23 @@ public final class CrashRepair {
                 return new Insight("", null, List.of(), List.of(), "");
             }
             JsonObject first = findings.get(0).getAsJsonObject();
-            String id = text(first, "id");
             String confidence = text(first, "confidence");
             Double score = "high".equals(confidence) ? 0.9 : "medium".equals(confidence) ? 0.6 : null;
             List<String> evidence = new ArrayList<>();
-            if (first.has("evidence") && first.get("evidence").isJsonArray()) {
-                for (JsonElement item : first.getAsJsonArray("evidence")) {
-                    if (!item.isJsonObject()) continue;
+            int shown = Math.min(findings.size(), 4);
+            for (int i = 0; i < shown; i++) {
+                if (!findings.get(i).isJsonObject()) continue;
+                JsonObject finding = findings.get(i).getAsJsonObject();
+                if (!finding.has("evidence") || !finding.get("evidence").isJsonArray()) continue;
+                for (JsonElement item : finding.getAsJsonArray("evidence")) {
+                    if (!item.isJsonObject() || evidence.size() >= 8) break;
                     JsonObject row = item.getAsJsonObject();
                     int line = row.has("line") && row.get("line").isJsonPrimitive() ? row.get("line").getAsInt() : 0;
                     evidence.add(text(row, "filename") + ":" + line + " " + text(row, "text"));
                 }
             }
-            String cause = evidence.isEmpty() ? id : evidence.get(0);
-            return new Insight(cause, score, evidence, List.of(), id);
+            String cause = evidence.isEmpty() ? text(first, "id") : evidence.get(0);
+            return new Insight(cause, score, evidence, List.of(), "");
         } catch (RuntimeException e) {
             return new Insight("", null, List.of(), List.of(), "");
         }

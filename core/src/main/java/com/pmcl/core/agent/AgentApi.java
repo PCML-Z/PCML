@@ -2,6 +2,7 @@ package com.pmcl.core.agent;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.pmcl.core.ecxp.EcxpBridge;
 import com.pmcl.plugin.PluginContext;
 
@@ -24,6 +25,11 @@ public final class AgentApi {
             "accounts.addOfflineAccount",
             "accounts.removeAccount",
             "plugins.unloadPlugin",
+            "plugins.enablePlugin",
+            "plugins.disablePlugin",
+            "modpacks.importModpack",
+            "gameContent.importWorld",
+            "rooms.invitation",
             "settings.setCustomJvmArgs",
             "settings.setCustomMirrorBase",
             "settings.setPluginConfig",
@@ -135,12 +141,10 @@ public final class AgentApi {
                     modMarket.listFiles(source, projectId)
                     modMarket.install(source, projectId, fileId, gameVersion, versionOrInstanceId)""";
             case "modpacks" -> """
-                    modpacks.listInstalled()
-                    modpacks.importModpack(file)""";
+                    modpacks.listInstalled()""";
             case "content" -> """
                     gameContent.listWorlds()
                     gameContent.backupWorld(worldName)
-                    gameContent.importWorld(zipFile)
                     gameContent.listResourcePacks()
                     gameContent.enableResourcePack(fileName)
                     gameContent.disableResourcePack(fileName)
@@ -228,15 +232,12 @@ public final class AgentApi {
             case "plugins" -> """
                     plugins.listPlugins()
                     plugins.getPlugin(pluginId)
-                    plugins.isEnabled(pluginId)
-                    plugins.enablePlugin(pluginId)
-                    plugins.disablePlugin(pluginId)""";
+                    plugins.isEnabled(pluginId)""";
             case "rooms" -> """
                     rooms.state()
                     rooms.createRoom()
                     rooms.joinRoom(invitationCode)
                     rooms.leaveRoom()
-                    rooms.invitation()
                     rooms.virtualIp()""";
             case "i18n" -> """
                     i18n.currentLanguage()
@@ -296,11 +297,26 @@ public final class AgentApi {
         try {
             JsonElement result = EcxpBridge.call(context, name, args == null ? new JsonArray() : args);
             String text = result == null ? "null" : result.toString();
+            if ("rooms.state".equals(name)) text = redactRoomState(text);
             if (text.length() > MAX_CHARS) return text.substring(0, MAX_CHARS) + "…";
             return text;
         } catch (EcxpBridge.Failure e) {
             String message = e.getMessage() == null ? "" : e.getMessage();
             return message.isEmpty() ? e.code() : e.code() + ": " + message;
+        }
+    }
+
+    /** 房间状态给助手看时去掉邀请码和房间码，加入凭证只留在启动器界面。 */
+    static String redactRoomState(String text) {
+        try {
+            JsonElement element = JsonParser.parseString(text);
+            if (!element.isJsonObject()) return text;
+            var object = element.getAsJsonObject();
+            if (object.has("invitation")) object.addProperty("invitation", "");
+            if (object.has("roomCode")) object.addProperty("roomCode", "");
+            return object.toString();
+        } catch (RuntimeException e) {
+            return text;
         }
     }
 }

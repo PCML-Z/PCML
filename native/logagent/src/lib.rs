@@ -89,7 +89,10 @@ pub extern "system" fn Java_com_pmcl_core_agent_LogAgentNative_context0(
     };
     let text = handle
         .lock()
-        .map(|session| session.context())
+        .map(|session| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| session.context()))
+                .unwrap_or_else(|_| "{\"error\":\"diagnostic engine failed\"}".to_string())
+        })
         .unwrap_or_else(|_| "{\"error\":\"LogAgent session unavailable\"}".to_string());
     java_string(&mut env, text)
 }
@@ -107,9 +110,13 @@ pub extern "system" fn Java_com_pmcl_core_agent_LogAgentNative_tool0(
     let Ok(request) = env.get_string(&request) else {
         return std::ptr::null_mut();
     };
+    let request = request.to_string_lossy().to_string();
     let text = handle
         .lock()
-        .map(|mut session| session.tool(&request.to_string_lossy().to_string()))
+        .map(|mut session| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| session.tool(&request)))
+                .unwrap_or_else(|_| "{\"error\":\"diagnostic engine failed\"}".to_string())
+        })
         .unwrap_or_else(|_| "{\"error\":\"LogAgent session unavailable\"}".to_string());
     java_string(&mut env, text)
 }

@@ -109,6 +109,65 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.concurrent.ConcurrentHashMap
 
+/** 兼容选项和 Java 下载进度。挂在窗口根上，不跟启动页走。 */
+@Composable
+fun GlobalLaunchDialogs(vm: LauncherViewModel) {
+    val compatOptions by vm.compatOptions.collectAsState()
+    val compatTitle by vm.compatTitle.collectAsState()
+    if (compatOptions.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { vm.dismissCompatOptions() },
+            title = { Text(compatTitle) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    compatOptions.forEach { option ->
+                        Card(
+                            onClick = { vm.invokeCompatOption(option) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = glassCardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            elevation = glassCardElevation(),
+                            modifier = Modifier.fillMaxWidth().glassCardBorder()
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(option.title, style = MaterialTheme.typography.titleSmall,
+                                     fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(4.dp))
+                                Text(option.description, style = MaterialTheme.typography.bodySmall,
+                                     color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                OutlinedButton(onClick = { vm.dismissCompatOptions() }) {
+                    Text(I18n.t("common.cancel"))
+                }
+            }
+        )
+    }
+    val javaDownloading by vm.javaDownloading.collectAsState()
+    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
+    if (javaDownloading) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("正在下载 Java 运行时") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(javaDownloadStatus.ifBlank { "准备中…" },
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            },
+            confirmButton = {},
+            dismissButton = {}
+        )
+    }
+}
+
 @Composable
 fun LaunchPage(vm: LauncherViewModel) {
     val versions by vm.versions.collectAsState()
@@ -127,8 +186,6 @@ fun LaunchPage(vm: LauncherViewModel) {
     val gameRunning by vm.gameRunning.collectAsState()
     val installing by vm.installing.collectAsState()
     val installProgress by vm.installProgress.collectAsState()
-    val compatOptions by vm.compatOptions.collectAsState()
-    val compatTitle by vm.compatTitle.collectAsState()
     val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm") }
     var settingsVersionId by remember { mutableStateOf<String?>(null) }
     var settingsShownId by remember { mutableStateOf<String?>(null) }
@@ -1487,61 +1544,7 @@ fun LaunchPage(vm: LauncherViewModel) {
         )
     }
 
-    // ===== 兼容性选项对话框 =====
-    if (desktopHost && compatOptions.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { vm.dismissCompatOptions() },
-            title = { Text(compatTitle) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    compatOptions.forEach { option ->
-                        Card(
-                            onClick = { vm.invokeCompatOption(option) },
-                            shape = RoundedCornerShape(8.dp),
-                            colors = glassCardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            ),
-                            elevation = glassCardElevation(),
-                            modifier = Modifier.fillMaxWidth().glassCardBorder()
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(option.title, style = MaterialTheme.typography.titleSmall,
-                                     fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.height(4.dp))
-                                Text(option.description, style = MaterialTheme.typography.bodySmall,
-                                     color = MaterialTheme.colorScheme.outline)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                OutlinedButton(onClick = { vm.dismissCompatOptions() }) {
-                    Text(I18n.t("common.cancel"))
-                }
-            }
-        )
-    }
-
-    // ===== Java 运行时下载进度（兼容性自动下载等） =====
-    val javaDownloading by vm.javaDownloading.collectAsState()
-    val javaDownloadStatus by vm.javaDownloadStatus.collectAsState()
-    if (desktopHost && javaDownloading) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text("正在下载 Java 运行时") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(javaDownloadStatus.ifBlank { "准备中…" },
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-            },
-            confirmButton = {},
-            dismissButton = {}
-        )
-    }
+    // 兼容选项和 Java 下载进度挂在 App 上，实例页和锁屏也能看见。
 
     AnimatedVisibility(
         visible = settingsVersionId != null,

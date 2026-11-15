@@ -41,6 +41,18 @@ class AgentApiTest {
         assertFalse(AgentApi.leaves("mods.scanMods"));
         assertTrue(AgentApi.denied("recordings.delete"));
         assertTrue(AgentApi.denied("presets.delete"));
+        assertTrue(AgentApi.denied("gameContent.importWorld"));
+        assertTrue(AgentApi.denied("modpacks.importModpack"));
+        assertTrue(AgentApi.denied("plugins.enablePlugin"));
+        assertTrue(AgentApi.denied("plugins.disablePlugin"));
+        assertTrue(AgentApi.denied("rooms.invitation"));
+        assertFalse(AgentApi.catalog("content").contains("importWorld"));
+        assertFalse(AgentApi.catalog("rooms").contains("rooms.invitation"));
+        String room = AgentApi.redactRoomState(
+                "{\"invitation\":\"secret\",\"roomCode\":\"U/1\",\"inRoom\":true}");
+        assertFalse(room.contains("secret"));
+        assertFalse(room.contains("U/1"));
+        assertTrue(room.contains("true"));
         assertFalse(AgentApi.denied("loaders.install"));
         assertTrue(AgentApi.leaves("loaders.install"));
         assertTrue(AgentApi.catalog("pins").contains("pin"));

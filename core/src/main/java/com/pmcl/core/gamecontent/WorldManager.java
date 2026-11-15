@@ -237,10 +237,14 @@ public final class WorldManager {
 
     /** 从 zip 恢复世界（覆盖现有世界，按世界名串行化，防止与并发备份/恢复竞争导致数据丢失） */
     public void restore(Path zipFile, String worldName) throws IOException {
+        if (!safeWorldName(worldName)) throw new IOException("非法世界名: " + worldName);
         synchronized (lockFor(worldName)) {
-            Path target = savesDir.resolve(worldName).normalize();
-            if (!target.startsWith(savesDir)) throw new IOException("非法世界名: " + worldName);
-            Files.createDirectories(savesDir);
+            Path root = savesDir.toAbsolutePath().normalize();
+            Path target = root.resolve(worldName).normalize();
+            if (target.getParent() == null || !target.getParent().equals(root)) {
+                throw new IOException("非法世界名: " + worldName);
+            }
+            Files.createDirectories(root);
             // 先解压到临时暂存目录，成功后再替换原世界，避免解压中途失败导致原存档丢失
             Path staging = target.resolveSibling(worldName + ".restoring");
             // 清理上次失败残留的暂存目录
@@ -286,6 +290,13 @@ public final class WorldManager {
                 throw e;
             }
         }
+    }
+
+    /** 空名、`.` 和带斜杠的名字不能当世界目录，否则会挪走整个 saves。 */
+    static boolean safeWorldName(String worldName) {
+        if (worldName == null || worldName.isBlank() || worldName.length() > 180) return false;
+        if (".".equals(worldName) || "..".equals(worldName)) return false;
+        return worldName.indexOf('/') < 0 && worldName.indexOf('\\') < 0 && worldName.indexOf('\0') < 0;
     }
 
     /** 导入世界 zip（与 restore 相同，但目标名取 zip 文件名） */

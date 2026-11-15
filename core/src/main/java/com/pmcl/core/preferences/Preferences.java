@@ -594,11 +594,24 @@ public final class Preferences {
     public synchronized boolean isJava27Compat() { return java27Compat; }
     public synchronized void setJava27Compat(boolean v) { java27Compat = v; scheduleSave(); }
 
+    public static final int MIN_MEMORY_FLOOR = 128;
+    public static final int MAX_MEMORY_FLOOR = 512;
+    /** 防止助手或输入框写成 -Xmx2147483647m，启动时直接失败。 */
+    public static final int MEMORY_CAP_MB = 131072;
+
     public synchronized int getMinMemoryMb() { return minMemoryMb; }
-    public synchronized void setMinMemoryMb(int v) { if (v < 128) return; minMemoryMb = v; scheduleSave(); }
+    public synchronized void setMinMemoryMb(int v) {
+        if (v < MIN_MEMORY_FLOOR || v > MEMORY_CAP_MB) return;
+        minMemoryMb = v;
+        scheduleSave();
+    }
 
     public synchronized int getMaxMemoryMb() { return maxMemoryMb; }
-    public synchronized void setMaxMemoryMb(int v) { if (v < 512) return; maxMemoryMb = v; scheduleSave(); }
+    public synchronized void setMaxMemoryMb(int v) {
+        if (v < MAX_MEMORY_FLOOR || v > MEMORY_CAP_MB) return;
+        maxMemoryMb = v;
+        scheduleSave();
+    }
 
     public synchronized String getJavaPath() { return javaPath; }
     public synchronized void setJavaPath(String v) {
@@ -1353,8 +1366,8 @@ public final class Preferences {
             // 整数字段（带范围校验）
             customAccentColor = loadInt(o, "customAccentColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
             monetSeedColor = loadInt(o, "monetSeedColor", -1, Integer.MIN_VALUE, Integer.MAX_VALUE);
-            minMemoryMb = loadInt(o, "minMemoryMb", 512, 128, Integer.MAX_VALUE);
-            maxMemoryMb = loadInt(o, "maxMemoryMb", 4096, 512, Integer.MAX_VALUE);
+            minMemoryMb = loadInt(o, "minMemoryMb", 512, MIN_MEMORY_FLOOR, MEMORY_CAP_MB);
+            maxMemoryMb = loadInt(o, "maxMemoryMb", 4096, MAX_MEMORY_FLOOR, MEMORY_CAP_MB);
             gameWindowWidth = loadInt(o, "gameWindowWidth", 854, 1, Integer.MAX_VALUE);
             gameWindowHeight = loadInt(o, "gameWindowHeight", 480, 1, Integer.MAX_VALUE);
             gameServerPort = loadInt(o, "gameServerPort", 25565, 1, 65535);
@@ -1643,8 +1656,8 @@ public final class Preferences {
                         JsonObject p = entry.getValue().getAsJsonObject();
                         launchPresets.put(entry.getKey(), new LaunchPreset(
                                 entry.getKey(),
-                                loadInt(p, "minMemoryMb", 512, 128, Integer.MAX_VALUE),
-                                loadInt(p, "maxMemoryMb", 4096, 512, Integer.MAX_VALUE),
+                                loadInt(p, "minMemoryMb", 512, MIN_MEMORY_FLOOR, MEMORY_CAP_MB),
+                                loadInt(p, "maxMemoryMb", 4096, MAX_MEMORY_FLOOR, MEMORY_CAP_MB),
                                 loadString(p, "gcType", "G1GC"),
                                 loadBool(p, "useAikarFlags", true),
                                 loadString(p, "customJvmArgs", ""),
