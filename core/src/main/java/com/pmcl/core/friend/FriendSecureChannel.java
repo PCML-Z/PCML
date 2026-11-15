@@ -35,6 +35,9 @@ public final class FriendSecureChannel implements AutoCloseable {
     private long sendCounter;
     private long recvCounter;
     private final byte[] staticShared; // for media key derivation
+    /** 读循环不能占着写锁，否则对端停在下一次 read 时，回复永远写不出去。 */
+    private final Object writeLock = new Object();
+    private final Object readLock = new Object();
 
     private FriendSecureChannel(InputStream in, OutputStream out,
                                 byte[] sendKey, byte[] recvKey,
@@ -167,46 +170,54 @@ public final class FriendSecureChannel implements AutoCloseable {
                 peerId, peerEd, peerX, staticShared);
     }
 
-    public synchronized void writeLine(String jsonLine) throws IOException {
-        byte[] plain = jsonLine.getBytes(StandardCharsets.UTF_8);
-        long seq = sendCounter++;
-        byte[] nonce = FriendCrypto.randomNonce();
-        byte[] aad = FriendCrypto.longToBe(seq);
-        byte[] ct = FriendCrypto.aesGcmEncrypt(sendKey, nonce, plain, aad);
-        JsonObject frame = new JsonObject();
-        frame.addProperty("type", "sec");
-        frame.addProperty("seq", seq);
-        frame.addProperty("n", FriendCrypto.b64(nonce));
-        frame.addProperty("c", FriendCrypto.b64(ct));
-        writeRawLine(rawOut, frame.toString());
+    public void writeLine(String jsonLine) throws IOException {
+        synchronized (writeLock) {
+            byte[] plain = jsonLine.getBytes(StandardCharsets.UTF_8);
+            long seq = sendCounter++;
+            byte[] nonce = FriendCrypto.randomNonce();
+            byte[] aad = FriendCrypto.longToBe(seq);
+            byte[] ct = FriendCrypto.aesGcmEncrypt(sendKey, nonce, plain, aad);
+            JsonObject frame = new JsonObject();
+            frame.addProperty("type", "sec");
+            frame.addProperty("seq", seq);
+            frame.addProperty("n", FriendCrypto.b64(nonce));
+            frame.addProperty("c", FriendCrypto.b64(ct));
+            writeRawLine(rawOut, frame.toString());
+        }
     }
 
-    public synchronized String readLine(int maxPlainBytes) throws IOException {
+    public String readLine(int maxPlainBytes) throws IOException {
         String line = FriendProtocol.readLineBounded(rawIn, FriendProtocol.MAX_MESSAGE_LENGTH);
         if (line == null) return null;
-        JsonObject frame = JsonParser.parseString(line).getAsJsonObject();
-        if (!"sec".equals(text(frame, "type"))) {
-            throw new IOException("expected encrypted frame, got: " + text(frame, "type"));
+        synchronized (readLock) {
+            JsonObject frame = JsonParser.parseString(line).getAsJsonObject();
+            if (!"sec".equals(text(frame, "type"))) {
+                throw new IOException("expected encrypted frame, got: " + text(frame, "type"));
+            }
+            long seq = frame.get("seq").getAsLong();
+            if (seq != recvCounter) {
+                throw new IOException("secure channel sequence mismatch: got " + seq + " expect " + recvCounter);
+            }
+            recvCounter++;
+            byte[] nonce = FriendCrypto.b64d(frame.get("n").getAsString());
+            byte[] ct = FriendCrypto.b64d(frame.get("c").getAsString());
+            byte[] plain = FriendCrypto.aesGcmDecrypt(recvKey, nonce, ct, FriendCrypto.longToBe(seq));
+            if (plain.length > maxPlainBytes) {
+                throw new IOException("decrypted message too large");
+            }
+            return new String(plain, StandardCharsets.UTF_8);
         }
-        long seq = frame.get("seq").getAsLong();
-        if (seq != recvCounter) {
-            throw new IOException("secure channel sequence mismatch: got " + seq + " expect " + recvCounter);
-        }
-        recvCounter++;
-        byte[] nonce = FriendCrypto.b64d(frame.get("n").getAsString());
-        byte[] ct = FriendCrypto.b64d(frame.get("c").getAsString());
-        byte[] plain = FriendCrypto.aesGcmDecrypt(recvKey, nonce, ct, FriendCrypto.longToBe(seq));
-        if (plain.length > maxPlainBytes) {
-            throw new IOException("decrypted message too large");
-        }
-        return new String(plain, StandardCharsets.UTF_8);
     }
 
     @Override
     public void close() {
-        Arrays.fill(sendKey, (byte) 0);
-        Arrays.fill(recvKey, (byte) 0);
-        Arrays.fill(staticShared, (byte) 0);
+        synchronized (writeLock) {
+            synchronized (readLock) {
+                Arrays.fill(sendKey, (byte) 0);
+                Arrays.fill(recvKey, (byte) 0);
+                Arrays.fill(staticShared, (byte) 0);
+            }
+        }
     }
 
     private static void writeRawLine(OutputStream out, String line) throws IOException {

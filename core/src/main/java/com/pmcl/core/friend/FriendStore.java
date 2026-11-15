@@ -280,6 +280,20 @@ public final class FriendStore {
         saveFriends();
     }
 
+    /** 用对端报上来的名字替换占位名。空名、过长或带控制字符的不写。 */
+    public void setDisplayName(String identity, String displayName) {
+        if (identity == null || displayName == null) return;
+        String clean = displayName.trim();
+        if (clean.isEmpty() || clean.length() > 48) return;
+        for (int i = 0; i < clean.length(); i++) {
+            if (clean.charAt(i) < 0x20) return;
+        }
+        FriendEntry entry = friends.get(identity);
+        if (entry == null || clean.equals(entry.displayName)) return;
+        entry.displayName = clean;
+        saveFriends();
+    }
+
     /** 设置/更新与好友共享的握手密钥 */
     public void setAuthSecret(String identity, String secret) {
         if (identity == null || secret == null || secret.isBlank()) return;

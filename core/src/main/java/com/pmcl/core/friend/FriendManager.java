@@ -1,6 +1,9 @@
 package com.pmcl.core.friend;
 
 import java.io.IOException;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -213,7 +216,7 @@ public final class FriendManager implements AutoCloseable {
 
             @Override
             public void onMessage(String remoteIp, String identity, String jsonLine) {
-                handleIncomingMessage(identity, jsonLine);
+                handleIncomingMessage(identity, jsonLine, remoteIp);
             }
         });
 
@@ -432,6 +435,147 @@ public final class FriendManager implements AutoCloseable {
     public FriendIdentityManager getIdentityManager() { return identityManager; }
     public FriendStore getStore() { return store; }
     public int getChatPort() { return chatServer.getPort(); }
+
+    /**
+     * 别人用来连接本机聊天服务器的地址。没在监听时返回空字符串。
+     * 优先选局域网 IPv4，没有就用回环地址。
+     */
+    public String localChatAddress() {
+        int port = chatServer.getPort();
+        if (!chatServer.isRunning() || port <= 0) return "";
+        String ip = siteLocalIpv4();
+        if (ip == null) ip = "127.0.0.1";
+        return ip + ":" + port;
+    }
+
+    /** 手动连接对方的聊天服务器。地址形如 {@code 192.168.1.8:54321} 或 {@code [::1]:54321}。 */
+    public ChatConnectResult connectChatServer(String address) {
+        ChatServerTarget target = parseChatAddress(address);
+        if (target == null) return new ChatConnectResult("invalid", "", "");
+        if (identityManager.getIdentity() == null) return new ChatConnectResult("unavailable", "", "");
+        if (state != State.RUNNING) {
+            try {
+                start();
+            } catch (IOException e) {
+                System.err.println("[FriendManager] 连接前启动聊天服务器失败: " + e.getMessage());
+                return new ChatConnectResult("unavailable", "", "");
+            }
+        }
+        if (state != State.RUNNING || !chatServer.isRunning()) {
+            return new ChatConnectResult("unavailable", "", "");
+        }
+        if (isOwnChatEndpoint(target)) return new ChatConnectResult("self", "", "");
+
+        String myId = identityManager.getIdentity().toString();
+        String myName = identityManager.getDisplayName() == null ? "" : identityManager.getDisplayName();
+        FriendChatClient client = new FriendChatClient(target.host, target.port, myId, myName);
+        client.setMyChatPort(chatServer.getPort());
+        client.setCrypto(identityManager.asLocalIdentity(), null);
+        installDirectCallback(client);
+        try {
+            client.connect();
+        } catch (IOException e) {
+            System.err.println("[FriendManager] 连接聊天服务器失败 (" + target.host + ":" + target.port
+                    + "): " + e.getMessage());
+            try { client.close(); } catch (Exception ignored) {}
+            return new ChatConnectResult("failed", "", "");
+        }
+
+        FriendSecureChannel channel = client.getChannel();
+        String peerId = channel == null ? null : channel.getPeerIdentity();
+        if (peerId == null || !FriendIdentity.isValid(peerId) || peerId.equals(myId)) {
+            try { client.close(); } catch (Exception ignored) {}
+            return new ChatConnectResult("self", "", "");
+        }
+        byte[] ed = channel.getPeerEdPub();
+        byte[] x = channel.getPeerXPub();
+        FriendSecureChannel.PeerStaticKeys pinned = store.getPeerStaticKeys(peerId);
+        if (pinned != null && (!Arrays.equals(pinned.edPublic, ed) || !Arrays.equals(pinned.xPublic, x))) {
+            try { client.close(); } catch (Exception ignored) {}
+            return new ChatConnectResult("mismatch", "", "");
+        }
+
+        adoptClient(peerId, client);
+        boolean known = store.isFriend(peerId);
+        if (!known) {
+            store.addFriend(peerId, trimPeerName(target.host), target.host, target.port);
+            store.setPeerPublicKeys(peerId, ed, x);
+            try {
+                byte[] myX = identityManager.getX25519Private();
+                if (myX != null) {
+                    store.setAuthSecret(peerId, FriendCrypto.deriveSharedSecretHex(myX, x));
+                }
+            } catch (Exception e) {
+                System.err.println("[FriendManager] 连接后派生密钥失败: " + e.getMessage());
+            }
+            store.updateOnlineStatus(peerId, true, target.host, target.port);
+            fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(peerId));
+            client.sendFriendRequest();
+            FriendStore.FriendEntry added = store.getFriend(peerId);
+            String addedName = added != null && added.displayName != null ? added.displayName : target.host;
+            return new ChatConnectResult("request_sent", addedName, peerId);
+        }
+        store.setPeerPublicKeys(peerId, ed, x);
+        boolean changed = store.updateOnlineStatus(peerId, true, target.host, target.port);
+        if (changed) fireEvent(FriendEvent.Type.FRIEND_ONLINE, store.getFriend(peerId));
+        pushLocalSession(peerId);
+        FriendStore.FriendEntry existing = store.getFriend(peerId);
+        String existingName = existing != null && existing.displayName != null ? existing.displayName : target.host;
+        return new ChatConnectResult("connected", existingName, peerId);
+    }
+
+    /** 解析 {@code 主机:端口}。不合法时返回 null，不发起连接。 */
+    public static ChatServerTarget parseChatAddress(String raw) {
+        if (raw == null) return null;
+        String text = raw.trim();
+        if (text.length() < 3 || text.length() > 300) return null;
+        String host;
+        String portText;
+        if (text.startsWith("[")) {
+            int end = text.indexOf(']');
+            if (end <= 1 || end + 2 >= text.length() || text.charAt(end + 1) != ':') return null;
+            host = text.substring(1, end);
+            portText = text.substring(end + 2);
+        } else {
+            int colon = text.lastIndexOf(':');
+            if (colon <= 0 || colon == text.length() - 1) return null;
+            host = text.substring(0, colon);
+            portText = text.substring(colon + 1);
+        }
+        if (!isChatHost(host) || !isPortText(portText)) return null;
+        int port;
+        try {
+            port = Integer.parseInt(portText);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        if (port < 1 || port > 65535) return null;
+        return new ChatServerTarget(host, port);
+    }
+
+    /** 对方聊天服务器的主机和端口。 */
+    public static final class ChatServerTarget {
+        public final String host;
+        public final int port;
+
+        private ChatServerTarget(String host, int port) {
+            this.host = host;
+            this.port = port;
+        }
+    }
+
+    /** {@link #connectChatServer} 的结果。code 取 invalid、unavailable、self、mismatch、failed、connected、request_sent。 */
+    public static final class ChatConnectResult {
+        public final String code;
+        public final String peerName;
+        public final String identity;
+
+        public ChatConnectResult(String code, String peerName, String identity) {
+            this.code = code == null ? "" : code;
+            this.peerName = peerName == null ? "" : peerName;
+            this.identity = identity == null ? "" : identity;
+        }
+    }
 
     /** 添加事件监听器 */
     public void addListener(Consumer<FriendEvent> listener) {
@@ -848,6 +992,7 @@ public final class FriendManager implements AutoCloseable {
     }
 
     private void sendJson(String identity, FriendStore.FriendEntry friend, FriendChatClient client, String json) {
+        if (chatServer.sendTo(identity, json)) return;
         if (client != null && client.isConnected()) {
             client.send(json);
         } else if (client != null) {
@@ -876,6 +1021,7 @@ public final class FriendManager implements AutoCloseable {
         }
         fireEvent(FriendEvent.Type.FRIEND_ADDED, store.getFriend(peerId));
 
+        if (chatServer.sendTo(peerId, friendAckJson(true))) return;
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
             FriendChatClient client = getOrCreateClient(peerId, request.ip, request.port);
             if (client != null && client.isConnected()) {
@@ -888,6 +1034,7 @@ public final class FriendManager implements AutoCloseable {
 
     /** 拒绝好友请求 */
     public void rejectFriendRequest(PendingRequest request) {
+        if (chatServer.sendTo(request.identity.toString(), friendAckJson(false))) return;
         if (request.ip != null && !request.ip.isEmpty() && request.port > 0) {
             FriendChatClient client = getOrCreateClient(request.identity.toString(), request.ip, request.port);
             if (client != null && client.isConnected()) {
@@ -959,6 +1106,7 @@ public final class FriendManager implements AutoCloseable {
     }
 
     private void sendSession(String identity, String json) {
+        if (chatServer.sendTo(identity, json)) return;
         FriendStore.FriendEntry friend = store.getFriend(identity);
         if (friend == null || friend.lastIp == null || friend.lastIp.isEmpty() || friend.lastPort <= 0) return;
         FriendChatClient client = getOrCreateClient(identity, friend.lastIp, friend.lastPort);
@@ -1111,7 +1259,7 @@ public final class FriendManager implements AutoCloseable {
      * @param channelIdentity authenticated peer identity from secure-channel handshake
      *                        (never trust JSON {@code from} for attribution)
      */
-    private void handleIncomingMessage(String channelIdentity, String jsonLine) {
+    private void handleIncomingMessage(String channelIdentity, String jsonLine, String remoteIp) {
         String type = FriendProtocol.peekType(jsonLine);
         if (type == null) return;
         if (channelIdentity == null || channelIdentity.isBlank()) return;
@@ -1158,23 +1306,26 @@ public final class FriendManager implements AutoCloseable {
                     } catch (Exception ignored) {}
                 }
                 if (store.isFriend(channelIdentity)) {
-                    int ackPort = req.port > 0 ? req.port : 0;
                     FriendStore.FriendEntry existing = store.getFriend(channelIdentity);
-                    String ackIp = existing != null && existing.lastIp != null ? existing.lastIp : "";
+                    int ackPort = req.port > 0 ? req.port : (existing != null ? existing.lastPort : 0);
+                    String ackIp = firstAddress(remoteIp, existing != null ? existing.lastIp : null);
                     store.addFriend(channelIdentity,
                             req.name != null ? req.name : channelIdentity, ackIp, ackPort);
-                    FriendChatClient client = getOrCreateClient(channelIdentity, ackIp, ackPort);
-                    if (client != null && client.isConnected()) {
-                        client.sendFriendAck(channelIdentity, true);
-                    } else if (client != null) {
-                        enqueuePending(channelIdentity,
-                                () -> client.sendFriendAck(channelIdentity, true));
+                    if (req.name != null && !req.name.isBlank()) store.setDisplayName(channelIdentity, req.name);
+                    if (!chatServer.sendTo(channelIdentity, friendAckJson(true))) {
+                        FriendChatClient client = getOrCreateClient(channelIdentity, ackIp, ackPort);
+                        if (client != null && client.isConnected()) {
+                            client.sendFriendAck(channelIdentity, true);
+                        } else if (client != null) {
+                            enqueuePending(channelIdentity,
+                                    () -> client.sendFriendAck(channelIdentity, true));
+                        }
                     }
                 } else {
                     FriendIdentity peerId = FriendIdentity.parse(channelIdentity);
                     FriendStore.FriendEntry existing = store.getFriend(channelIdentity);
-                    String reqIp = existing != null && existing.lastIp != null ? existing.lastIp : "";
-                    int peerPort = req.port > 0 ? req.port : 0;
+                    String reqIp = firstAddress(remoteIp, existing != null ? existing.lastIp : null);
+                    int peerPort = req.port > 0 ? req.port : (existing != null ? existing.lastPort : 0);
                     PendingRequest pending = new PendingRequest(peerId,
                             req.name != null ? req.name : channelIdentity,
                             reqIp, peerPort, null, ed, x);
@@ -1191,6 +1342,7 @@ public final class FriendManager implements AutoCloseable {
                     String name = ack.name != null ? ack.name
                             : (existing != null ? existing.displayName : channelIdentity);
                     store.addFriend(channelIdentity, name, ackIp, ackPort);
+                    if (ack.name != null && !ack.name.isBlank()) store.setDisplayName(channelIdentity, ack.name);
                     try {
                         if (ack.ed25519Pub != null && ack.x25519Pub != null) {
                             byte[] ed = FriendCrypto.b64d(ack.ed25519Pub);
@@ -1316,7 +1468,7 @@ public final class FriendManager implements AutoCloseable {
         client.setCallback(new FriendChatClient.MessageCallback() {
             @Override
             public void onMessageReceived(String jsonLine) {
-                handleIncomingMessage(identity, jsonLine);
+                handleIncomingMessage(identity, jsonLine, null);
             }
 
             @Override
@@ -1363,6 +1515,151 @@ public final class FriendManager implements AutoCloseable {
                 System.err.println("[FriendManager] 连接好友失败 (" + identity + "): " + reason);
             }
         });
+    }
+
+    private void installDirectCallback(FriendChatClient client) {
+        client.setCallback(new FriendChatClient.MessageCallback() {
+            private String peerId() {
+                FriendSecureChannel channel = client.getChannel();
+                return channel == null ? null : channel.getPeerIdentity();
+            }
+
+            @Override
+            public void onMessageReceived(String jsonLine) {
+                String id = peerId();
+                if (id != null) handleIncomingMessage(id, jsonLine, null);
+            }
+
+            @Override
+            public void onDisconnected(String reason) {
+                String id = peerId();
+                if (id == null) return;
+                if (!activeClients.remove(id, client)) return;
+                peerSessions.remove(id);
+                fireEvent(FriendEvent.Type.MP_SESSION, null);
+                boolean changed = store.updateOnlineStatus(id, false, "", 0);
+                if (changed) {
+                    FriendStore.FriendEntry entry = store.getFriend(id);
+                    if (entry != null) fireEvent(FriendEvent.Type.FRIEND_OFFLINE, entry);
+                }
+            }
+
+            @Override
+            public void onConnected() {}
+
+            @Override
+            public void onConnectFailed(String reason) {}
+        });
+    }
+
+    private void adoptClient(String identity, FriendChatClient client) {
+        FriendChatClient previous;
+        synchronized (activeClients) {
+            previous = activeClients.put(identity, client);
+        }
+        if (previous != null && previous != client) {
+            try { previous.setCallback(null); } catch (Exception ignored) {}
+            try { previous.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private String friendAckJson(boolean accepted) {
+        FriendProtocol.FriendAck ack = new FriendProtocol.FriendAck();
+        FriendIdentity me = identityManager.getIdentity();
+        ack.identity = me == null ? "" : me.toString();
+        ack.name = identityManager.getDisplayName();
+        ack.accepted = accepted;
+        ack.port = chatServer.getPort();
+        try {
+            FriendSecureChannel.LocalIdentity local = identityManager.asLocalIdentity();
+            if (local.edPublic() != null && local.xPublic() != null) {
+                ack.ed25519Pub = FriendCrypto.b64(local.edPublic());
+                ack.x25519Pub = FriendCrypto.b64(local.xPublic());
+            }
+        } catch (Exception ignored) {}
+        return ack.toJson();
+    }
+
+    private boolean isOwnChatEndpoint(ChatServerTarget target) {
+        if (target.port != chatServer.getPort()) return false;
+        String host = target.host.toLowerCase(Locale.ROOT);
+        if (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("::1")
+                || host.equals("0.0.0.0") || host.equals("::")) {
+            return true;
+        }
+        if (!isNumericAddress(host)) return false;
+        try {
+            InetAddress addr = InetAddress.getByName(host);
+            if (addr.isLoopbackAddress() || addr.isAnyLocalAddress()) return true;
+            return NetworkInterface.getByInetAddress(addr) != null;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static boolean isChatHost(String host) {
+        if (host == null || host.isEmpty() || host.length() > 253) return false;
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            boolean ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == ':' || c == '_';
+            if (!ok) return false;
+        }
+        return true;
+    }
+
+    private static boolean isPortText(String portText) {
+        if (portText == null || portText.isEmpty() || portText.length() > 5) return false;
+        for (int i = 0; i < portText.length(); i++) {
+            char c = portText.charAt(i);
+            if (c < '0' || c > '9') return false;
+        }
+        return true;
+    }
+
+    private static boolean isNumericAddress(String host) {
+        for (int i = 0; i < host.length(); i++) {
+            char c = host.charAt(i);
+            if (!((c >= '0' && c <= '9') || c == '.' || c == ':')) return false;
+        }
+        return true;
+    }
+
+    private static String firstAddress(String preferred, String fallback) {
+        if (preferred != null && !preferred.isBlank()) return preferred.trim();
+        if (fallback != null && !fallback.isBlank()) return fallback.trim();
+        return "";
+    }
+
+    private static String trimPeerName(String name) {
+        if (name == null) return "";
+        String clean = name.trim();
+        if (clean.length() > 48) clean = clean.substring(0, 48);
+        return clean;
+    }
+
+    private static String siteLocalIpv4() {
+        try {
+            Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
+            if (ifaces == null) return null;
+            String fallback = null;
+            while (ifaces.hasMoreElements()) {
+                NetworkInterface iface = ifaces.nextElement();
+                if (!iface.isUp() || iface.isLoopback()) continue;
+                Enumeration<InetAddress> addrs = iface.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    InetAddress addr = addrs.nextElement();
+                    if (!(addr instanceof Inet4Address) || addr.isLoopbackAddress()) continue;
+                    String host = addr.getHostAddress();
+                    if (host == null || host.isBlank()) continue;
+                    if (addr.isSiteLocalAddress()) return host;
+                    if (fallback == null) fallback = host;
+                }
+            }
+            return fallback;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void fireEvent(FriendEvent.Type type, Object data) {

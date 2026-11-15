@@ -36,6 +36,9 @@ public final class FriendChatServer implements AutoCloseable {
     private final AtomicInteger connectionCount = new AtomicInteger(0);
     private static final int MAX_CONNECTIONS = 50;
     private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
+    /** 对方连进来的信道。回复写在这条连接上，不必再回拨对方端口。 */
+    private final java.util.concurrent.ConcurrentHashMap<String, FriendSecureChannel> inbound =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private volatile Predicate<String> identityValidator = id -> false;
     private volatile Function<String, FriendSecureChannel.PeerStaticKeys> peerKeyLookup = id -> null;
@@ -100,6 +103,7 @@ public final class FriendChatServer implements AutoCloseable {
     @Override
     public void close() {
         running.set(false);
+        inbound.clear();
         try {
             if (serverSocket != null && !serverSocket.isClosed()) serverSocket.close();
         } catch (IOException ignored) {}
@@ -149,18 +153,35 @@ public final class FriendChatServer implements AutoCloseable {
         }
     }
 
+    /** 把一行写回已经连进来的对端。没有这条连接或写入失败时返回 false。 */
+    boolean sendTo(String identity, String line) {
+        if (identity == null || identity.isBlank() || line == null || line.isEmpty()) return false;
+        FriendSecureChannel channel = inbound.get(identity);
+        if (channel == null) return false;
+        try {
+            channel.writeLine(line);
+            return true;
+        } catch (IOException e) {
+            inbound.remove(identity, channel);
+            return false;
+        }
+    }
+
     private void handleClient(Socket socket) {
         FriendSecureChannel channel = null;
+        String peerId = null;
         try (socket) {
             socket.setSoTimeout(AUTH_TIMEOUT_MS);
             String remoteAddr = socket.getInetAddress().getHostAddress();
-            channel = FriendSecureChannel.serverHandshake(socket, localIdentity, peerId -> {
-                FriendSecureChannel.PeerStaticKeys pinned = peerKeyLookup.apply(peerId);
+            channel = FriendSecureChannel.serverHandshake(socket, localIdentity, claimedId -> {
+                FriendSecureChannel.PeerStaticKeys pinned = peerKeyLookup.apply(claimedId);
                 if (pinned != null) return pinned;
                 // Unknown peer: allow introduce (friend request) — keys self-authenticated via Ed25519
                 return null;
             });
             String identity = channel.getPeerIdentity();
+            peerId = identity;
+            if (identity != null && !identity.isBlank()) inbound.put(identity, channel);
             boolean known = identityValidator.test(identity);
             // Allow unknown peers through for friend_req; known peers always OK
             if (!known) {
@@ -206,6 +227,7 @@ public final class FriendChatServer implements AutoCloseable {
         } catch (IOException e) {
             // disconnect
         } finally {
+            if (peerId != null && channel != null) inbound.remove(peerId, channel);
             if (channel != null) {
                 try { channel.close(); } catch (Exception ignored) {}
             }
