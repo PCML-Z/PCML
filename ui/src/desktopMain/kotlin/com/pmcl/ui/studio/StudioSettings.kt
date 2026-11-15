@@ -314,6 +314,12 @@ private fun buildCategories(vm: LauncherViewModel, theme: ThemeState, recommende
             enabled = { !theme.dynamicColor }
         ),
         SettingItem.Choice(
+            t("settings.launcher_icons"), t("settings.launcher_icons_desc"),
+            options = listOf("modern", "classic").map { it to t("settings.launcher_icons.$it") },
+            get = { pref.getLauncherIconStyle() },
+            set = { vm.setLauncherIconStyle(it) }
+        ),
+        SettingItem.Choice(
             t("settings.color_mode"), t("settings.color_mode_desc"),
             options = listOf("normal", "amoled", "high_contrast", "soft").map { it to t("settings.color_mode.$it") },
             get = { theme.colorMode }, set = { vm.applyColorMode(it, theme) }

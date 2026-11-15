@@ -59,6 +59,7 @@ fun PerfHudWindow(
 
     Window(
         onCloseRequest = onClose,
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "PMCL Performance HUD",
         state = state,
         undecorated = true,

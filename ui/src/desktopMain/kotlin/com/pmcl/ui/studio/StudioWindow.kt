@@ -482,6 +482,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     val scheme = if (themeState.dynamicColor || themeState.customAccentColor != -1) themeState.dynamicColorScheme else null
     Window(
         onCloseRequest = { requestClose() },
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "PMCL Studio" + (if (windows.size > 1) " · " + windowLabel(windowId) else "") + (target?.let { " — " + it.name } ?: ""),
         state = state,
         undecorated = true,

@@ -61,6 +61,7 @@ fun MusicOverlayWindow(vm: LauncherViewModel, themeState: ThemeState, onClose: (
     }
     Window(
         onCloseRequest = onClose,
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "PMCL Music",
         state = state,
         undecorated = true,

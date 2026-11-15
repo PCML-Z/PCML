@@ -153,6 +153,7 @@ class LauncherViewModel {
         // 注入 video 模块的主菜单背景视频处理器（JavaCV 实现）
         // core 模块不依赖 video，通过接口注入避免循环依赖；video 模块未就绪时该功能降级不可用
         com.pmcl.core.util.LauncherLogCollector.setLevel(preferences.launcherLogLevel)
+        com.pmcl.ui.navigation.PmclIconStyles.apply(preferences.launcherIconStyle)
         try {
             core.profileBuilder().setMenuBackgroundProvider(com.pmcl.video.MenuBackgroundManager())
         } catch (e: Throwable) {
@@ -2435,6 +2436,11 @@ class LauncherViewModel {
         ts.applyThemePreset(preset)
         preferences.setThemePreset(preset)
         _status.value = I18n.t("status.theme_preset_applied")
+    }
+
+    fun setLauncherIconStyle(style: String) {
+        preferences.setLauncherIconStyle(style)
+        com.pmcl.ui.navigation.PmclIconStyles.apply(style)
     }
 
     /** 应用特殊色彩模式（normal/amoled/high_contrast/soft） */

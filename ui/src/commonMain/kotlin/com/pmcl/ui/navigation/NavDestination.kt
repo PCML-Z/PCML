@@ -8,25 +8,47 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * 功能较多的入口钻入二级侧边栏（见 [SecondaryNavRegistry]）：
  * - Settings / Download / Content / Statistics / Multiplayer / Accounts / Saves / Plugins / Music
  */
-sealed class NavDestination(val route: String, val labelKey: String, val icon: ImageVector) {
-    data object Launch      : NavDestination("launch",      "nav.launch",      PmclIcons.Launch)
-    data object News        : NavDestination("news",        "nav.news",        PmclIcons.News)
-    data object Tips        : NavDestination("tips",        "nav.tips",        PmclIcons.Tips)
-    data object Multiplayer : NavDestination("multiplayer", "nav.multiplayer", PmclIcons.Multiplayer)
-    data object Servers     : NavDestination("servers",     "nav.servers",     PmclIcons.Servers)
-    data object Friends     : NavDestination("friends",     "nav.friends",     PmclIcons.Friends)
-    data object Download    : NavDestination("download",    "nav.download",    PmclIcons.Download)
-    data object Content     : NavDestination("content",     "nav.content",     PmclIcons.Content)
-    data object Saves       : NavDestination("saves",       "nav.saves",       PmclIcons.Saves)
-    data object Statistics  : NavDestination("statistics",  "nav.statistics",  PmclIcons.Statistics)
-    data object Accounts    : NavDestination("accounts",    "nav.accounts",    PmclIcons.Accounts)
-    data object Settings    : NavDestination("settings",    "nav.settings",    PmclIcons.Settings)
-    data object Terminal    : NavDestination("terminal",    "nav.terminal",    PmclIcons.Terminal)
-    data object Plugins     : NavDestination("plugins",     "nav.plugins",     PmclIcons.Plugins)
-    data object Ecxp        : NavDestination("ecxp",        "nav.ecxp",        PmclIcons.Ecxp)
-    data object Instances   : NavDestination("instances",   "nav.instances",   PmclIcons.Instances)
-    data object NbtEditor   : NavDestination("nbt",         "nav.nbt",         PmclIcons.Nbt)
-    data object Music       : NavDestination("music",       "nav.music",       PmclIcons.Music)
+sealed class NavDestination(val route: String, val labelKey: String) {
+    val icon: ImageVector
+        get() = when (this) {
+            Launch -> PmclIcons.Launch
+            News -> PmclIcons.News
+            Tips -> PmclIcons.Tips
+            Multiplayer -> PmclIcons.Multiplayer
+            Servers -> PmclIcons.Servers
+            Friends -> PmclIcons.Friends
+            Download -> PmclIcons.Download
+            Content -> PmclIcons.Content
+            Saves -> PmclIcons.Saves
+            Statistics -> PmclIcons.Statistics
+            Accounts -> PmclIcons.Accounts
+            Settings -> PmclIcons.Settings
+            Terminal -> PmclIcons.Terminal
+            Plugins -> PmclIcons.Plugins
+            Ecxp -> PmclIcons.Ecxp
+            Instances -> PmclIcons.Instances
+            NbtEditor -> PmclIcons.Nbt
+            Music -> PmclIcons.Music
+        }
+
+    data object Launch      : NavDestination("launch",      "nav.launch")
+    data object News        : NavDestination("news",        "nav.news")
+    data object Tips        : NavDestination("tips",        "nav.tips")
+    data object Multiplayer : NavDestination("multiplayer", "nav.multiplayer")
+    data object Servers     : NavDestination("servers",     "nav.servers")
+    data object Friends     : NavDestination("friends",     "nav.friends")
+    data object Download    : NavDestination("download",    "nav.download")
+    data object Content     : NavDestination("content",     "nav.content")
+    data object Saves       : NavDestination("saves",       "nav.saves")
+    data object Statistics  : NavDestination("statistics",  "nav.statistics")
+    data object Accounts    : NavDestination("accounts",    "nav.accounts")
+    data object Settings    : NavDestination("settings",    "nav.settings")
+    data object Terminal    : NavDestination("terminal",    "nav.terminal")
+    data object Plugins     : NavDestination("plugins",     "nav.plugins")
+    data object Ecxp        : NavDestination("ecxp",        "nav.ecxp")
+    data object Instances   : NavDestination("instances",   "nav.instances")
+    data object NbtEditor   : NavDestination("nbt",         "nav.nbt")
+    data object Music       : NavDestination("music",       "nav.music")
 }
 
 val allDestinations = listOf(

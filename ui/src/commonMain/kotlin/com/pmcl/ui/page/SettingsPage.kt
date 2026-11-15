@@ -337,6 +337,41 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
 
         if (sectionId == "theme") {
+        ThemeSectionCard(I18n.t("settings.launcher_icons")) {
+                val styles = listOf("modern", "classic")
+                val selected = if (com.pmcl.ui.navigation.PmclIconStyles.style.value == com.pmcl.ui.navigation.PmclIconStyles.Style.Classic) "classic" else "modern"
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    styles.forEach { style ->
+                        val on = style == selected
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(
+                                    1.dp,
+                                    if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable { vm.setLauncherIconStyle(style) }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Image(
+                                painter = painterResource(if (style == "classic") "pmcl_icon.png" else "pmcl_icon_modern.png"),
+                                contentDescription = I18n.t("settings.launcher_icons.$style"),
+                                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(14.dp))
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(I18n.t("settings.launcher_icons.$style"), fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.launcher_icons_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+        }
+        Spacer(Modifier.height(16.dp))
         ThemeSectionCard(I18n.t("settings.theme.color")) {
                 Row(Modifier.agentSettingAnchor(vm, "followSystem"), verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -1675,7 +1710,7 @@ private fun AboutCard(vm: LauncherViewModel) {
                     tonalElevation = 2.dp
                 ) {
                     Image(
-                        painter = painterResource("pmcl_icon.png"),
+                        painter = painterResource(com.pmcl.ui.navigation.PmclIconStyles.asset()),
                         contentDescription = null,
                         modifier = Modifier.size(48.dp).padding(2.dp)
                     )

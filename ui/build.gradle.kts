@@ -154,6 +154,7 @@ compose.desktop {
             windows {
                 menuGroup = "PMCL"
                 upgradeUuid = "7f5e9c8a-3b2d-4e1f-9a8c-1b6d5e4f7a2c"
+                iconFile.set(project.file("src/commonMain/resources/pmcl_icon_modern.ico"))
             }
             macOS {
                 bundleID = "com.pmcl.ui"
@@ -167,6 +168,7 @@ compose.desktop {
             }
             linux {
                 packageName = "pmcl"
+                iconFile.set(project.file("src/commonMain/resources/pmcl_icon_modern.png"))
             }
         }
     }

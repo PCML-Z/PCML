@@ -5,11 +5,13 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /** 二级侧栏中的一个子分区 */
-data class SecondarySection(
+class SecondarySection(
     val id: String,
     val labelKey: String,
-    val icon: ImageVector? = null,
-)
+    private val iconOf: () -> ImageVector? = { null },
+) {
+    val icon: ImageVector? get() = iconOf()
+}
 
 /** 某个一级入口的二级导航规格 */
 data class SecondaryNavSpec(
@@ -23,25 +25,25 @@ object SecondaryNavRegistry {
         parentRoute = "settings",
         parentLabelKey = "nav.settings",
         sections = listOf(
-            SecondarySection("launcher", "settings.section.launcher", PmclIcons.Settings),
-            SecondarySection("accounts", "settings.section.accounts", PmclIcons.Accounts),
-            SecondarySection("theme", "settings.section.theme", PmclIcons.Palette),
-            SecondarySection("java", "settings.section.java", PmclIcons.Terminal),
-            SecondarySection("automation", "settings.section.automation", PmclIcons.Bolt),
-            SecondarySection("game", "settings.section.game", PmclIcons.Launch),
-            SecondarySection("compile", "settings.section.compile", PmclIcons.Wrench),
-            SecondarySection("mio", "settings.section.mio", PmclIcons.Speed),
-            SecondarySection("network", "settings.section.network", PmclIcons.Multiplayer),
-            SecondarySection("cursor", "settings.section.cursor", PmclIcons.Key),
-            SecondarySection("updates", "settings.section.updates", PmclIcons.Update),
-            SecondarySection("git-tree", "settings.section.git_tree", PmclIcons.Nbt),
-            SecondarySection("device", "settings.section.device", PmclIcons.Shield),
-            SecondarySection("system", "settings.section.system", PmclIcons.News),
-            SecondarySection("about", "settings.section.about", PmclIcons.Article),
-            SecondarySection("feedback", "settings.section.feedback", PmclIcons.Qr),
-            SecondarySection("licenses", "settings.section.licenses", PmclIcons.Gavel),
-            SecondarySection("kernels", "settings.section.kernels", PmclIcons.Kernel),
-            SecondarySection("extensions", "settings.section.extensions", PmclIcons.Plugins),
+            SecondarySection("launcher", "settings.section.launcher") { PmclIcons.Settings },
+            SecondarySection("accounts", "settings.section.accounts") { PmclIcons.Accounts },
+            SecondarySection("theme", "settings.section.theme") { PmclIcons.Palette },
+            SecondarySection("java", "settings.section.java") { PmclIcons.Terminal },
+            SecondarySection("automation", "settings.section.automation") { PmclIcons.Bolt },
+            SecondarySection("game", "settings.section.game") { PmclIcons.Launch },
+            SecondarySection("compile", "settings.section.compile") { PmclIcons.Wrench },
+            SecondarySection("mio", "settings.section.mio") { PmclIcons.Speed },
+            SecondarySection("network", "settings.section.network") { PmclIcons.Multiplayer },
+            SecondarySection("cursor", "settings.section.cursor") { PmclIcons.Key },
+            SecondarySection("updates", "settings.section.updates") { PmclIcons.Update },
+            SecondarySection("git-tree", "settings.section.git_tree") { PmclIcons.Nbt },
+            SecondarySection("device", "settings.section.device") { PmclIcons.Shield },
+            SecondarySection("system", "settings.section.system") { PmclIcons.News },
+            SecondarySection("about", "settings.section.about") { PmclIcons.Article },
+            SecondarySection("feedback", "settings.section.feedback") { PmclIcons.Qr },
+            SecondarySection("licenses", "settings.section.licenses") { PmclIcons.Gavel },
+            SecondarySection("kernels", "settings.section.kernels") { PmclIcons.Kernel },
+            SecondarySection("extensions", "settings.section.extensions") { PmclIcons.Plugins },
         )
     )
 
@@ -49,10 +51,10 @@ object SecondaryNavRegistry {
         parentRoute = "download",
         parentLabelKey = "nav.download",
         sections = listOf(
-            SecondarySection("versions", "download.local_versions", PmclIcons.Wrench),
-            SecondarySection("market", "nav.market", PmclIcons.Content),
-            SecondarySection("queue", "nav.queue", PmclIcons.Download),
-            SecondarySection("wiki", "nav.wiki", PmclIcons.Article),
+            SecondarySection("versions", "download.local_versions") { PmclIcons.Wrench },
+            SecondarySection("market", "nav.market") { PmclIcons.Content },
+            SecondarySection("queue", "nav.queue") { PmclIcons.Download },
+            SecondarySection("wiki", "nav.wiki") { PmclIcons.Article },
         )
     )
 
@@ -60,15 +62,15 @@ object SecondaryNavRegistry {
         parentRoute = "content",
         parentLabelKey = "nav.content",
         sections = listOf(
-            SecondarySection("mods", "nav.mods", PmclIcons.Plugins),
-            SecondarySection("modpacks", "nav.modpacks", PmclIcons.Modpack),
-            SecondarySection("shaders", "nav.shaders", PmclIcons.Sun),
-            SecondarySection("projections", "nav.projections", PmclIcons.Grid),
-            SecondarySection("resourcepacks", "nav.resourcepacks", PmclIcons.Palette),
-            SecondarySection("datapacks", "nav.datapacks", PmclIcons.Dataset),
-            SecondarySection("configs", "nav.configs", PmclIcons.Edit),
-            SecondarySection("skins", "nav.offline_skins", PmclIcons.Image),
-            SecondarySection("memory", "nav.memory", Icons.Filled.Memory),
+            SecondarySection("mods", "nav.mods") { PmclIcons.Plugins },
+            SecondarySection("modpacks", "nav.modpacks") { PmclIcons.Modpack },
+            SecondarySection("shaders", "nav.shaders") { PmclIcons.Sun },
+            SecondarySection("projections", "nav.projections") { PmclIcons.Grid },
+            SecondarySection("resourcepacks", "nav.resourcepacks") { PmclIcons.Palette },
+            SecondarySection("datapacks", "nav.datapacks") { PmclIcons.Dataset },
+            SecondarySection("configs", "nav.configs") { PmclIcons.Edit },
+            SecondarySection("skins", "nav.offline_skins") { PmclIcons.Image },
+            SecondarySection("memory", "nav.memory") { Icons.Filled.Memory },
         )
     )
 
@@ -76,10 +78,10 @@ object SecondaryNavRegistry {
         parentRoute = "statistics",
         parentLabelKey = "nav.statistics",
         sections = listOf(
-            SecondarySection("performance", "stats.section.performance", PmclIcons.Speed),
-            SecondarySection("overview", "stats.section.overview", PmclIcons.Statistics),
-            SecondarySection("sessions", "stats.section.sessions", PmclIcons.Launch),
-            SecondarySection("breakdown", "stats.section.breakdown", PmclIcons.Dataset),
+            SecondarySection("performance", "stats.section.performance") { PmclIcons.Speed },
+            SecondarySection("overview", "stats.section.overview") { PmclIcons.Statistics },
+            SecondarySection("sessions", "stats.section.sessions") { PmclIcons.Launch },
+            SecondarySection("breakdown", "stats.section.breakdown") { PmclIcons.Dataset },
         )
     )
 
@@ -87,9 +89,9 @@ object SecondaryNavRegistry {
         parentRoute = "multiplayer",
         parentLabelKey = "nav.multiplayer",
         sections = listOf(
-            SecondarySection("room", "mp.section.room", PmclIcons.Multiplayer),
-            SecondarySection("settings", "mp.section.settings", PmclIcons.Settings),
-            SecondarySection("help", "mp.section.help", PmclIcons.News),
+            SecondarySection("room", "mp.section.room") { PmclIcons.Multiplayer },
+            SecondarySection("settings", "mp.section.settings") { PmclIcons.Settings },
+            SecondarySection("help", "mp.section.help") { PmclIcons.News },
         )
     )
 
@@ -97,12 +99,12 @@ object SecondaryNavRegistry {
         parentRoute = "accounts",
         parentLabelKey = "nav.accounts",
         sections = listOf(
-            SecondarySection("list", "accounts.section.list", PmclIcons.Accounts),
-            SecondarySection("skin", "accounts.section.skin", PmclIcons.Palette),
-            SecondarySection("offline", "accounts.section.offline", PmclIcons.Friends),
-            SecondarySection("microsoft", "accounts.section.microsoft", PmclIcons.Browser),
-            SecondarySection("github", "accounts.section.github", PmclIcons.Key),
-            SecondarySection("yggdrasil", "accounts.section.yggdrasil", PmclIcons.Shield),
+            SecondarySection("list", "accounts.section.list") { PmclIcons.Accounts },
+            SecondarySection("skin", "accounts.section.skin") { PmclIcons.Palette },
+            SecondarySection("offline", "accounts.section.offline") { PmclIcons.Friends },
+            SecondarySection("microsoft", "accounts.section.microsoft") { PmclIcons.Browser },
+            SecondarySection("github", "accounts.section.github") { PmclIcons.Key },
+            SecondarySection("yggdrasil", "accounts.section.yggdrasil") { PmclIcons.Shield },
         )
     )
 
@@ -110,10 +112,10 @@ object SecondaryNavRegistry {
         parentRoute = "saves",
         parentLabelKey = "nav.saves",
         sections = listOf(
-            SecondarySection("worlds", "nav.worlds", PmclIcons.Globe),
-            SecondarySection("timemachine", "nav.timemachine", PmclIcons.History),
-            SecondarySection("screenshots", "nav.screenshots", PmclIcons.Image),
-            SecondarySection("recordings", "nav.recordings", PmclIcons.Video),
+            SecondarySection("worlds", "nav.worlds") { PmclIcons.Globe },
+            SecondarySection("timemachine", "nav.timemachine") { PmclIcons.History },
+            SecondarySection("screenshots", "nav.screenshots") { PmclIcons.Image },
+            SecondarySection("recordings", "nav.recordings") { PmclIcons.Video },
         )
     )
 
@@ -121,9 +123,9 @@ object SecondaryNavRegistry {
         parentRoute = "plugins",
         parentLabelKey = "nav.plugins",
         sections = listOf(
-            SecondarySection("installed", "plugins.section.installed", PmclIcons.Plugins),
-            SecondarySection("actions", "plugins.section.actions", PmclIcons.Launch),
-            SecondarySection("install", "plugins.section.install", PmclIcons.Plus),
+            SecondarySection("installed", "plugins.section.installed") { PmclIcons.Plugins },
+            SecondarySection("actions", "plugins.section.actions") { PmclIcons.Launch },
+            SecondarySection("install", "plugins.section.install") { PmclIcons.Plus },
         )
     )
 
@@ -131,9 +133,9 @@ object SecondaryNavRegistry {
         parentRoute = "friends",
         parentLabelKey = "nav.friends",
         sections = listOf(
-            SecondarySection("chat", "friend.section.chat", PmclIcons.Friends),
-            SecondarySection("mail", "friend.section.mail", PmclIcons.Mail),
-            SecondarySection("rooms", "friend.section.rooms", PmclIcons.Multiplayer),
+            SecondarySection("chat", "friend.section.chat") { PmclIcons.Friends },
+            SecondarySection("mail", "friend.section.mail") { PmclIcons.Mail },
+            SecondarySection("rooms", "friend.section.rooms") { PmclIcons.Multiplayer },
         )
     )
 
@@ -141,10 +143,10 @@ object SecondaryNavRegistry {
         parentRoute = "music",
         parentLabelKey = "nav.music",
         sections = listOf(
-            SecondarySection("player", "music.section.player", PmclIcons.Music),
-            SecondarySection("playlist", "music.playlist", PmclIcons.Playlist),
-            SecondarySection("favorites", "music.favorites", PmclIcons.Star),
-            SecondarySection("history", "music.history", PmclIcons.History),
+            SecondarySection("player", "music.section.player") { PmclIcons.Music },
+            SecondarySection("playlist", "music.playlist") { PmclIcons.Playlist },
+            SecondarySection("favorites", "music.favorites") { PmclIcons.Star },
+            SecondarySection("history", "music.history") { PmclIcons.History },
         )
     )
 

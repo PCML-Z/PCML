@@ -16,7 +16,7 @@ import kotlin.math.sin
  * 导航用的自制图标。实心形状后面垫一层错位的半透明副本，染色后仍能看出厚度。
  * 需要镂空时，用奇偶填充把孔和外形画在同一条路径里。
  */
-object PmclIcons {
+internal object PmclClassicIcons {
     val Launch: ImageVector = icon("Launch") {
         shade { circle(12.5f, 12.6f, 8.6f) }
         ink(PathFillType.EvenOdd) {

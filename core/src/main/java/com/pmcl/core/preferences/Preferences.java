@@ -135,6 +135,7 @@ public final class Preferences {
     private boolean showGameOutput = true;
     private String launcherLogLevel = "DEBUG"; // DEBUG / INFO / WARN / ERROR / OFF
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
+    private String launcherIconStyle = "modern"; // modern：简洁一套；classic：原来的一套
     private String customMenuBackgroundVideo = "";  // 自定义主菜单背景视频路径（启动前提取 6 帧生成 panorama 资源包）
     private String customNativesPath = "";   // 自定义原生库目录路径（为空则从版本 libraries 提取 natives）
 
@@ -876,6 +877,13 @@ public final class Preferences {
         }
     }
 
+    public synchronized String getLauncherIconStyle() { return launcherIconStyle; }
+    public synchronized void setLauncherIconStyle(String v) {
+        String next = "classic".equals(v) ? "classic" : "modern";
+        if (next.equals(launcherIconStyle)) return;
+        launcherIconStyle = next;
+        scheduleSave();
+    }
     /** 自定义游戏窗口图标 PNG 路径（空则使用 MC 默认图标） */
     public synchronized String getWindowIconPath() { return windowIconPath; }
     public synchronized void setWindowIconPath(String v) {
@@ -1452,6 +1460,7 @@ public final class Preferences {
                 launcherLogLevel = "DEBUG";
             }
             windowIconPath = loadString(o, "windowIconPath", "");
+            launcherIconStyle = "classic".equals(loadString(o, "launcherIconStyle", "modern")) ? "classic" : "modern";
             customMenuBackgroundVideo = loadString(o, "customMenuBackgroundVideo", "");
             customNativesPath = loadString(o, "customNativesPath", "");
             mirrorType = loadString(o, "mirrorType", "OFFICIAL");
@@ -1891,6 +1900,7 @@ public final class Preferences {
         o.addProperty("showGameOutput", showGameOutput);
         o.addProperty("launcherLogLevel", launcherLogLevel);
         o.addProperty("windowIconPath", windowIconPath);
+        o.addProperty("launcherIconStyle", launcherIconStyle);
         o.addProperty("customMenuBackgroundVideo", customMenuBackgroundVideo);
         if (!customNativesPath.isEmpty()) o.addProperty("customNativesPath", customNativesPath);
         o.addProperty("mirrorType", mirrorType);

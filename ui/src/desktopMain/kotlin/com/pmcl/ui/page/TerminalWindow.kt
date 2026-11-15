@@ -34,6 +34,7 @@ fun TerminalWindow(
     }
     Window(
         onCloseRequest = onClose,
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "PMCL ${I18n.t("terminal.title")}",
         state = state
     ) {

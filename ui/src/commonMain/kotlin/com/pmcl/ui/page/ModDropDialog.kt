@@ -56,6 +56,7 @@ fun ModDropDialog(
 
     Window(
         onCloseRequest = { vm.cancelDropInstall() },
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = I18n.t("drop_install.title"),
         state = windowState,
         undecorated = false,

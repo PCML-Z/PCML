@@ -88,6 +88,7 @@ fun AnnouncementWindow(
     val isDragging = remember { mutableStateOf(false) }
     Window(
         onCloseRequest = onClose,
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "PMCL ${I18n.t("announcement.window_title")}",
         state = state,
         undecorated = borderless,

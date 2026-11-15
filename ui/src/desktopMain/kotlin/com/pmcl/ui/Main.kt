@@ -26,6 +26,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.pmcl.ui.navigation.pmclWindowIcon
 import com.pmcl.ui.page.MusicOverlayWindow
 import com.pmcl.ui.page.PerfHudWindow
 import com.pmcl.ui.page.TopBarSearchField
@@ -160,6 +161,7 @@ fun main() = application {
     val prefPath = pmclDir.resolve("preferences.json")
     val borderless = remember { readBorderlessPref(prefPath.toString()) }
     val vm = remember { LauncherViewModel() }
+    PmclDockIconEffect()
     val sharedThemeState = remember {
         ThemeState(initialDark = vm.preferences.isUseDarkTheme())
     }
@@ -263,6 +265,7 @@ fun main() = application {
             exitApplication()
         },
         title = "PMCL",
+        icon = pmclWindowIcon(),
         state = state,
         undecorated = borderless,
         transparent = borderless

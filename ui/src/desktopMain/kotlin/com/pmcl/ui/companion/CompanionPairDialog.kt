@@ -140,6 +140,7 @@ fun CompanionPairDialog(
 
     Window(
         onCloseRequest = onDismiss,
+        icon = com.pmcl.ui.navigation.pmclWindowIcon(),
         title = "设备配对",
         undecorated = true,
         transparent = true,
