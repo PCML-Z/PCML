@@ -302,14 +302,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                              style = MaterialTheme.typography.bodyMedium,
                              fontWeight = FontWeight.SemiBold,
                              modifier = Modifier.weight(1f))
-                        if (isInstalled) {
-                            StandaloneAppExportButton(
-                                vm = vm,
-                                versionId = it,
-                                defaultName = it,
-                                enabled = true
-                            )
-                        }
                         Surface(
                             color = if (isInstalled) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.tertiary,
@@ -947,7 +939,6 @@ fun LaunchPage(vm: LauncherViewModel) {
                         info = info,
                         launching = instanceLaunching == info.getInstanceId(),
                         enabled = account != null && !gameRunning && instanceLaunching == null,
-                        vm = vm,
                         onLaunch = { vm.launchInstance(info.getInstanceId()) }
                     )
                 }
@@ -1937,7 +1928,6 @@ private fun LaunchInstanceRow(
     info: InstanceInfo,
     launching: Boolean,
     enabled: Boolean,
-    vm: LauncherViewModel,
     onLaunch: () -> Unit
 ) {
     Surface(
@@ -1980,13 +1970,6 @@ private fun LaunchInstanceRow(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            StandaloneAppExportButton(
-                vm = vm,
-                versionId = info.getBaseVersionId(),
-                instanceDir = info.getInstanceDir(),
-                defaultName = info.getName(),
-                enabled = info.isLaunchable()
-            )
             if (launching) {
                 CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
             } else {
@@ -2081,12 +2064,6 @@ private fun LocalVersionRow(
                             else MaterialTheme.colorScheme.outline,
                      modifier = Modifier.size(18.dp))
             }
-            StandaloneAppExportButton(
-                vm = vm,
-                versionId = info.getId(),
-                defaultName = info.getId(),
-                enabled = info.isLaunchable()
-            )
             // 固定按钮
             IconButton(onClick = { if (pinned) onUnpin() else onPin() }) {
                 Icon(

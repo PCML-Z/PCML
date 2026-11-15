@@ -41,6 +41,7 @@ import com.pmcl.core.friend.FriendIdentityManager
 import com.pmcl.core.friend.FriendManager
 import com.pmcl.core.friend.FriendStore
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.theme.glassCardBorder
 import com.pmcl.ui.theme.glassCardColors
 import com.pmcl.ui.theme.glassCardElevation
@@ -63,6 +64,10 @@ import javax.swing.filechooser.FileNameExtensionFilter
 fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     if (sectionId == "mail") {
         FriendMailPage(Modifier.fillMaxSize().padding(16.dp))
+        return
+    }
+    if (sectionId == "server") {
+        FriendChatServerPage(vm)
         return
     }
     val friendManager = remember { vm.core.friend() }
@@ -93,11 +98,6 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
     var showAddDialog by remember { mutableStateOf(false) }
     var addFriendCode by remember { mutableStateOf("") }
     var addFriendError by remember { mutableStateOf<String?>(null) }
-    var chatServerAddress by remember { mutableStateOf("") }
-    var chatServerStatus by remember { mutableStateOf<String?>(null) }
-    var chatServerError by remember { mutableStateOf(false) }
-    var chatServerBusy by remember { mutableStateOf(false) }
-    var localChatAddress by remember { mutableStateOf("") }
     val pendingRequests = remember { mutableStateListOf<FriendManager.PendingRequest>() }
     var mpOffers by remember { mutableStateOf(friendManager.multiplayerSessions) }
 
@@ -275,41 +275,6 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
         }
     }
 
-    LaunchedEffect(friendSystemState) {
-        localChatAddress = withContext(Dispatchers.IO) {
-            runCatching { friendManager.localChatAddress() }.getOrDefault("")
-        }
-    }
-
-    val connectChatServer: () -> Unit = {
-        val address = chatServerAddress.trim()
-        if (!chatServerBusy && address.isNotEmpty()) {
-            scope.launch {
-                chatServerBusy = true
-                val result = withContext(Dispatchers.IO) {
-                    runCatching { friendManager.connectChatServer(address) }
-                        .onFailure { System.err.println("[FriendPage] 连接聊天服务器失败: ${it.message}") }
-                        .getOrNull()
-                }
-                chatServerBusy = false
-                if (result == null) {
-                    chatServerError = true
-                    chatServerStatus = I18n.t("friend.connect_chat.failed")
-                } else {
-                    val status = chatConnectStatus(result)
-                    chatServerStatus = status.first
-                    chatServerError = status.second
-                    if (!status.second && result.identity.isNotBlank()) {
-                        selectedFriendId = result.identity
-                        selectedGroupId = null
-                        chatServerAddress = ""
-                        refresh()
-                    }
-                }
-            }
-        }
-    }
-
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // 标题栏
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -364,34 +329,6 @@ fun FriendPage(vm: LauncherViewModel, sectionId: String = "chat") {
             )
             return@Column
         }
-
-        ChatServerConnectBar(
-            localAddress = localChatAddress,
-            address = chatServerAddress,
-            status = chatServerStatus,
-            error = chatServerError,
-            busy = chatServerBusy,
-            onAddressChange = {
-                chatServerAddress = it
-                chatServerStatus = null
-            },
-            onCopyLocal = {
-                if (localChatAddress.isNotBlank()) {
-                    try {
-                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
-                            java.awt.datatransfer.StringSelection(localChatAddress), null)
-                        chatServerStatus = I18n.t("friend.connect_chat.copied")
-                        chatServerError = false
-                    } catch (_: Exception) {
-                        chatServerStatus = I18n.t("friend.connect_chat.failed")
-                        chatServerError = true
-                    }
-                }
-            },
-            onConnect = connectChatServer
-        )
-
-        Spacer(Modifier.height(12.dp))
 
         if (friends.isEmpty() && pendingRequests.isEmpty()) {
             // 空状态（带身份卡片）
@@ -1481,20 +1418,78 @@ internal fun chatConnectStatus(result: FriendManager.ChatConnectResult): Pair<St
 }
 
 @Composable
-private fun ChatServerConnectBar(
-    localAddress: String,
-    address: String,
-    status: String?,
-    error: Boolean,
-    busy: Boolean,
-    onAddressChange: (String) -> Unit,
-    onCopyLocal: () -> Unit,
-    onConnect: () -> Unit
-) {
-    Column(Modifier.fillMaxWidth()) {
+private fun FriendChatServerPage(vm: LauncherViewModel) {
+    val friendManager = remember { vm.core.friend() }
+    if (friendManager == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(I18n.t("friend.system_unavailable"), style = MaterialTheme.typography.bodyLarge)
+        }
+        return
+    }
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(friendManager.state == FriendManager.State.RUNNING) }
+    var address by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var localAddress by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        if (friendManager.state != FriendManager.State.RUNNING) {
+            withContext(Dispatchers.IO) {
+                runCatching { friendManager.start() }
+                    .onFailure { System.err.println("[FriendPage] 启动聊天服务器失败: ${it.message}") }
+            }
+        }
+        running = friendManager.state == FriendManager.State.RUNNING
+        localAddress = withContext(Dispatchers.IO) {
+            runCatching { friendManager.localChatAddress() }.getOrDefault("")
+        }
+    }
+
+    val connect: () -> Unit = {
+        val target = address.trim()
+        if (!busy && target.isNotEmpty()) {
+            scope.launch {
+                busy = true
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { friendManager.connectChatServer(target) }
+                        .onFailure { System.err.println("[FriendPage] 连接聊天服务器失败: ${it.message}") }
+                        .getOrNull()
+                }
+                busy = false
+                localAddress = withContext(Dispatchers.IO) {
+                    runCatching { friendManager.localChatAddress() }.getOrDefault("")
+                }
+                if (result == null) {
+                    error = true
+                    status = I18n.t("friend.connect_chat.failed")
+                } else {
+                    val shown = chatConnectStatus(result)
+                    status = shown.first
+                    error = shown.second
+                    if (!shown.second) address = ""
+                }
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(PmclIcons.Globe, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(8.dp))
+            Text(I18n.t("friend.connect_chat"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            I18n.t("friend.connect_chat.page"),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (localAddress.isBlank()) I18n.t("friend.connect_chat.local_off")
+                if (!running || localAddress.isBlank()) I18n.t("friend.connect_chat.local_off")
                 else I18n.t("friend.connect_chat.local", localAddress),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
@@ -1502,36 +1497,46 @@ private fun ChatServerConnectBar(
                 overflow = TextOverflow.Ellipsis
             )
             if (localAddress.isNotBlank()) {
-                TextButton(onClick = onCopyLocal) {
+                TextButton(onClick = {
+                    try {
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(
+                            java.awt.datatransfer.StringSelection(localAddress), null)
+                        status = I18n.t("friend.connect_chat.copied")
+                        error = false
+                    } catch (_: Exception) {
+                        status = I18n.t("friend.connect_chat.failed")
+                        error = true
+                    }
+                }) {
                     Text(I18n.t("friend.connect_chat.copy"))
                 }
             }
         }
+        Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = address,
-                onValueChange = onAddressChange,
-                modifier = Modifier.weight(1f),
+                onValueChange = {
+                    address = it
+                    status = null
+                },
+                modifier = Modifier.widthIn(max = 420.dp).weight(1f),
                 placeholder = { Text(I18n.t("friend.connect_chat.hint")) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { onConnect() })
+                keyboardActions = KeyboardActions(onGo = { connect() })
             )
             Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = onConnect,
-                enabled = !busy && address.isNotBlank()
-            ) {
+            Button(onClick = connect, enabled = !busy && address.isNotBlank()) {
                 Text(I18n.t("friend.connect_chat"))
             }
         }
         if (status != null) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
-                status,
+                status!!,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (error) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

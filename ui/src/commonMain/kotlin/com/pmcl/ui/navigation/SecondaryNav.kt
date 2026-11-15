@@ -134,6 +134,7 @@ object SecondaryNavRegistry {
         parentLabelKey = "nav.friends",
         sections = listOf(
             SecondarySection("chat", "friend.section.chat") { PmclIcons.Friends },
+            SecondarySection("server", "friend.section.server") { PmclIcons.Globe },
             SecondarySection("mail", "friend.section.mail") { PmclIcons.Mail },
             SecondarySection("rooms", "friend.section.rooms") { PmclIcons.Multiplayer },
         )

@@ -160,6 +160,14 @@ fun buildSearchIndex(vm: LauncherViewModel): List<SearchItem> {
                 keywords = listOf(I18n.t("cmd.kw.mail"), "mail", "email", "inbox"),
                 onSelect = { vm.requestSecondaryNav("friends", "mail") }
             ))
+            add(SearchItem(
+                title = I18n.t("friend.connect_chat"),
+                subtitle = I18n.t("friend.connect_chat.page"),
+                icon = PmclIcons.Globe,
+                group = GROUP_NAV,
+                keywords = listOf(I18n.t("cmd.kw.chat_server"), "server", "host", "port"),
+                onSelect = { vm.requestSecondaryNav("friends", "server") }
+            ))
 
             // ===== Hub / 二级侧栏子页面 =====
             add(SearchItem(I18n.t("nav.mods"), I18n.t("search.hub.mods"), PmclIcons.Plugins, GROUP_NAV, listOf("mod", "mods", I18n.t("cmd.kw.mod"))) {

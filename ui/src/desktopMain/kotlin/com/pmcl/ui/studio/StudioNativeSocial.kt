@@ -339,7 +339,88 @@ internal fun FriendsModule(ctx: ModuleCtx) {
     when (ctx.section) {
         "mail" -> MailSection(ctx)
         "rooms" -> FriendRoomsSection(ctx)
+        "server" -> FriendChatServerSection(ctx)
         else -> FriendChatSection(ctx)
+    }
+}
+
+@Composable
+private fun FriendChatServerSection(ctx: ModuleCtx) {
+    val fm = remember { ctx.vm.core.friend() }
+    if (fm == null) {
+        EmptyState(I18n.t("friend.system_unavailable"), PmclIcons.Globe, color = ctx.color)
+        return
+    }
+    val (tick, _) = rememberFriendTick(fm)
+    val localChat = remember(tick) { runCatching { fm.localChatAddress() }.getOrDefault("") }
+    var address by remember { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val connect: () -> Unit = {
+        val target = address.trim()
+        if (!busy && target.isNotEmpty()) {
+            busy = true
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { fm.connectChatServer(target) }
+                        .onFailure { System.err.println("[Friends] 连接聊天服务器失败: ${it.message}") }
+                        .getOrNull()
+                }
+                busy = false
+                if (result == null) {
+                    error = true
+                    status = I18n.t("friend.connect_chat.failed")
+                } else {
+                    val shown = chatConnectStatus(result)
+                    status = shown.first
+                    error = shown.second
+                    if (!shown.second) address = ""
+                }
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        ModuleHero(I18n.t("friend.connect_chat"), "", ctx.color, PmclIcons.Globe)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlatText(I18n.t("friend.connect_chat.page"), size = 12, lines = 3)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FlatText(
+                    if (localChat.isBlank()) I18n.t("friend.connect_chat.local_off")
+                    else I18n.t("friend.connect_chat.local", localChat),
+                    modifier = Modifier.weight(1f)
+                )
+                if (localChat.isNotBlank()) {
+                    Block(I18n.t("friend.connect_chat.copy"), {
+                        copyText(localChat)
+                        status = I18n.t("friend.connect_chat.copied")
+                        error = false
+                    }, icon = Icons.Filled.ContentCopy, height = 30.dp)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InputBox(
+                    address,
+                    { address = it; status = "" },
+                    I18n.t("friend.connect_chat.hint"),
+                    Modifier.weight(1f),
+                    mono = true,
+                    onSubmit = connect
+                )
+                Block(
+                    I18n.t("friend.connect_chat"),
+                    connect,
+                    icon = Icons.Filled.Link,
+                    fill = ctx.color,
+                    enabled = !busy && address.isNotBlank(),
+                    height = 30.dp
+                )
+            }
+            if (status.isNotBlank()) {
+                FlatText(status, color = if (error) Tiles.Red else ctx.color, size = 12, lines = 3)
+            }
+        }
     }
 }
 
@@ -453,57 +534,6 @@ private fun FriendChatSection(ctx: ModuleCtx) {
                 }
                 if (inviteError.isNotBlank()) FlatText(inviteError, color = Tiles.Red, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
                 if (joinNotice.isNotBlank()) FlatText(joinNotice, color = ctx.color, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
-                var serverAddress by remember { mutableStateOf("") }
-                var serverStatus by remember { mutableStateOf("") }
-                var serverError by remember { mutableStateOf(false) }
-                var serverBusy by remember { mutableStateOf(false) }
-                val localChat = remember(tick) { runCatching { fm.localChatAddress() }.getOrDefault("") }
-                val connectServer: () -> Unit = {
-                    val address = serverAddress.trim()
-                    if (!serverBusy && address.isNotEmpty()) {
-                        serverBusy = true
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) {
-                                runCatching { fm.connectChatServer(address) }
-                                    .onFailure { System.err.println("[Friends] 连接聊天服务器失败: ${it.message}") }
-                                    .getOrNull()
-                            }
-                            serverBusy = false
-                            if (result == null) {
-                                serverError = true
-                                serverStatus = I18n.t("friend.connect_chat.failed")
-                            } else {
-                                val status = chatConnectStatus(result)
-                                serverStatus = status.first
-                                serverError = status.second
-                                if (!status.second && result.identity.isNotBlank()) {
-                                    selected = result.identity
-                                    serverAddress = ""
-                                }
-                            }
-                        }
-                    }
-                }
-                LabelBar(I18n.t("friend.connect_chat"), ctx.color)
-                if (localChat.isNotBlank()) {
-                    Row(Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FlatText(I18n.t("friend.connect_chat.local", localChat), size = 11, modifier = Modifier.weight(1f))
-                        Block("", { copyText(localChat); serverStatus = I18n.t("friend.connect_chat.copied"); serverError = false },
-                            icon = Icons.Filled.ContentCopy, height = 30.dp)
-                    }
-                } else {
-                    FlatText(I18n.t("friend.connect_chat.local_off"), color = p.muted, size = 11, modifier = Modifier.padding(horizontal = 10.dp))
-                }
-                Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    InputBox(serverAddress, { serverAddress = it; serverStatus = "" }, I18n.t("friend.connect_chat.hint"),
-                        Modifier.weight(1f), mono = true, onSubmit = connectServer)
-                    Block("", connectServer, icon = Icons.Filled.Link, fill = ctx.color,
-                        enabled = !serverBusy && serverAddress.isNotBlank(), height = 30.dp)
-                }
-                if (serverStatus.isNotBlank()) {
-                    FlatText(serverStatus, color = if (serverError) Tiles.Red else ctx.color, size = 11,
-                        modifier = Modifier.padding(horizontal = 10.dp))
-                }
                 LabelBar(I18n.t("friend.lan_title"), ctx.color)
                 if (nearby.isEmpty()) {
                     FlatText(I18n.t("friend.lan_empty"), color = p.muted, size = 11, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))

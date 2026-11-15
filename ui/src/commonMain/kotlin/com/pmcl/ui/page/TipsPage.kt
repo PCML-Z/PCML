@@ -282,10 +282,6 @@ private fun tipArticles() = listOf(
         TipSection("设置里的开关", listOf(
             "在「设置 → 设备绑定」。打开之后每次启动都会核对这台电脑。",
             "清空许可证字段没用，启动器另外记着保护还开着。要在这一页里关掉。"
-        )),
-        TipSection("独立 App", listOf(
-            "导出 Mac 独立包时，这台机器上得找得到 PMCL。找不到就失败，不会用当前文件夹凑数。",
-            "包是跟这份启动器绑的。PMCL.app 没了，别处也没有 PMCL，独立包就起不来。这和设备绑定不是同一个开关。"
         ))
     ), "settings", "device", "设置"),
     TipArticle("java", "单版本的 Java 会盖住全局", "架构不对，主版本对了也没用。", Icons.Filled.Memory, listOf(
