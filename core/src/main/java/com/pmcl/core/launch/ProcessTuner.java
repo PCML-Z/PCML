@@ -156,45 +156,66 @@ public final class ProcessTuner {
      * 不调用需要管理员授权的恢复：退出过程弹授权框会把关闭卡住。
      */
     public void releaseWhileGameLives() {
-        stopHelper(keepAwakeProcess, "keep-awake");
-        keepAwakeProcess = null;
-        if (originalLowPowerMode != null) {
-            int restore = originalLowPowerMode;
-            originalLowPowerMode = null;
-            try {
-                Path backup = com.pmcl.core.LauncherConfig.pmclHome().resolve("mio_pmset_backup.txt");
-                Files.createDirectories(backup.getParent());
-                Files.writeString(backup, String.valueOf(restore));
-            } catch (Exception ignored) {
-            }
+        releaseOnLauncherExit(true);
+    }
+
+    /**
+     * 启动器正在退出。不调用需要管理员授权的恢复。
+     * 游戏还活着时保留跟着它退出的 caffeinate；游戏已经结束则把辅助进程也停掉。
+     */
+    public void releaseOnLauncherExit(boolean gameAlive) {
+        if (!gameAlive) {
+            stopHelper(caffeinateProcess, "caffeinate", 200, TimeUnit.MILLISECONDS);
+            caffeinateProcess = null;
+            caffeinateDisplay = false;
+            unregisterGameMode();
         }
+        stopHelper(keepAwakeProcess, "keep-awake", 200, TimeUnit.MILLISECONDS);
+        keepAwakeProcess = null;
+        stashLowPowerMode();
     }
 
     public void cleanup() {
-        stopHelper(caffeinateProcess, "caffeinate");
+        stopHelper(caffeinateProcess, "caffeinate", 2, TimeUnit.SECONDS);
         caffeinateProcess = null;
         caffeinateDisplay = false;
-        stopHelper(keepAwakeProcess, "keep-awake");
+        stopHelper(keepAwakeProcess, "keep-awake", 2, TimeUnit.SECONDS);
         keepAwakeProcess = null;
         unregisterGameMode();
-        // L3：恢复原始低电量模式（可能再次弹授权；失败则写备份，避免反复打扰）
+        // 游戏已经退出、启动器还在。授权框放到后台，避免退出码和界面一直等密码。
         if (originalLowPowerMode != null && isMac) {
-            Integer restore = originalLowPowerMode;
+            int restore = originalLowPowerMode;
             originalLowPowerMode = null;
-            try {
-                String script = String.format(
-                    "do shell script \"pmset -a lowpowermode %d\" with administrator privileges",
-                    restore);
-                runPrivilegedOsascript(script);
-                System.out.println("[MioMode] L3 已恢复低电量模式=" + restore);
-            } catch (Exception e) {
-                System.err.println("[MioMode] L3 恢复低电量模式失败: " + e.getMessage());
+            Thread restoreThread = new Thread(() -> {
                 try {
-                    Path backup = com.pmcl.core.LauncherConfig.pmclHome().resolve("mio_pmset_backup.txt");
-                    Files.createDirectories(backup.getParent());
-                    Files.writeString(backup, String.valueOf(restore));
-                } catch (Exception ignored) {}
-            }
+                    String script = String.format(
+                        "do shell script \"pmset -a lowpowermode %d\" with administrator privileges",
+                        restore);
+                    runPrivilegedOsascript(script);
+                    System.out.println("[MioMode] L3 已恢复低电量模式=" + restore);
+                } catch (Exception e) {
+                    System.err.println("[MioMode] L3 恢复低电量模式失败: " + e.getMessage());
+                    writeLowPowerBackup(restore);
+                }
+            }, "pmcl-mio-restore");
+            restoreThread.setDaemon(true);
+            restoreThread.start();
+        }
+    }
+
+    private void stashLowPowerMode() {
+        if (originalLowPowerMode == null) return;
+        int restore = originalLowPowerMode;
+        originalLowPowerMode = null;
+        writeLowPowerBackup(restore);
+    }
+
+    private static void writeLowPowerBackup(int restore) {
+        try {
+            Path backup = com.pmcl.core.LauncherConfig.pmclHome().resolve("mio_pmset_backup.txt");
+            Files.createDirectories(backup.getParent());
+            Files.writeString(backup, String.valueOf(restore));
+        } catch (Exception ignored) {
         }
     }
 
@@ -211,7 +232,7 @@ public final class ProcessTuner {
         // 已经挡住熄屏时，普通防休眠不用再降回去。
         if (caffeinateProcess != null && caffeinateProcess.isAlive()) {
             if (!display || caffeinateDisplay) return;
-            stopHelper(caffeinateProcess, "caffeinate");
+            stopHelper(caffeinateProcess, "caffeinate", 2, TimeUnit.SECONDS);
             caffeinateProcess = null;
         }
         // -w：游戏退出后 caffeinate 自己结束。display 时再挡住熄屏、磁盘和系统休眠。
@@ -297,11 +318,11 @@ public final class ProcessTuner {
         return process;
     }
 
-    private void stopHelper(Process process, String name) {
+    private void stopHelper(Process process, String name, long timeout, TimeUnit unit) {
         if (process == null || !process.isAlive()) return;
         try {
             process.destroy();
-            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+            if (!process.waitFor(timeout, unit)) {
                 process.destroyForcibly();
             }
         } catch (Exception e) {

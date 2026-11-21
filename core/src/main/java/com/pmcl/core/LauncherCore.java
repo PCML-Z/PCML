@@ -419,6 +419,10 @@ public final class LauncherCore {
     }
 
     public void shutdown(boolean killGames) {
+        // 先落盘。后面的结束进程有超时，不能让没写完的设置被关掉的窗口带走。
+        safeShutdown("preferences-flush", () -> {
+            if (preferences != null) preferences.flush();
+        });
         safeShutdown("multiplayer", () -> {
             if (multiplayerManager != null) multiplayerManager.leaveRoom();
         });

@@ -31,6 +31,28 @@ class LaunchManagerShutdownTest {
     }
 
     @Test
+    void shutdownDoesNotAskForPrivilegedRestore() throws Exception {
+        Path work = Files.createTempDirectory("pmcl-launch-priv-");
+        LaunchManager manager = new LaunchManager(new LauncherConfig(work));
+        assertTrue(manager.restorePrivilegedTuningOnExit(null));
+        manager.shutdown(false);
+        assertFalse(manager.restorePrivilegedTuningOnExit(null));
+    }
+
+    @Test
+    void forceKillReturnsWhenDeadlineAlreadyPassed() throws Exception {
+        Process sleep = startSleeper();
+        try {
+            ProcessMonitor monitor = new ProcessMonitor();
+            long start = System.nanoTime();
+            monitor.forceKillUntil(sleep, System.nanoTime());
+            assertTrue(System.nanoTime() - start < TimeUnit.SECONDS.toNanos(2));
+        } finally {
+            if (sleep.isAlive()) sleep.destroyForcibly();
+        }
+    }
+
+    @Test
     void shutdownKillsTrackedProcess() throws Exception {
         Path work = Files.createTempDirectory("pmcl-launch-kill-");
         LaunchManager manager = new LaunchManager(new LauncherConfig(work));

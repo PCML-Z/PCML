@@ -33,6 +33,8 @@ public final class LaunchManager {
     public static final int EXIT_DETACHED = -101;
 
     private volatile boolean leaveGamesRunning = false;
+    /** 启动器正在退出。此时不能再弹管理员授权，也不能无限等进程树。 */
+    private volatile boolean launcherStopping = false;
     /** 串行化「留下游戏」和「结束游戏」，避免后一次关闭把已经留下的进程杀掉。 */
     private final Object lifecycleLock = new Object();
 
@@ -315,7 +317,14 @@ public final class LaunchManager {
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
-                    if (logger != null) logger.append(line);
+                    if (logger != null) {
+                        try {
+                            logger.append(line);
+                        } catch (Throwable t) {
+                            // 写日志失败不能关掉管道，否则游戏下次写 stdout 会收到 SIGPIPE
+                            System.err.println("[LaunchManager] 写游戏日志失败: " + t.getMessage());
+                        }
+                    }
                     // 队列满时丢弃最旧 UI 行，优先保证 reader 不阻塞；文件日志仍完整
                     if (!logQueue.offer(line)) {
                         logQueue.poll();
@@ -323,7 +332,12 @@ public final class LaunchManager {
                         int n = droppedUiLogs.incrementAndGet();
                         if (n == 1 || n % 500 == 0) {
                             String warn = "[PMCL] UI 日志队列拥塞，已丢弃 " + n + " 行（文件日志仍完整）";
-                            if (logger != null) logger.append(warn);
+                            if (logger != null) {
+                                try {
+                                    logger.append(warn);
+                                } catch (Throwable ignored) {
+                                }
+                            }
                             System.err.println(warn);
                         }
                     }
@@ -592,11 +606,11 @@ public final class LaunchManager {
                 if (onLog != null) onLog.accept(errMsg);
                 throw new RuntimeException("启动失败: " + root.getMessage(), e);
             } finally {
-                // 游戏还在、启动器要退出时不能弹管理员框，也不能拆掉跟着游戏走的防休眠。
+                // 启动器退出时不能弹管理员框。游戏自己退出时才恢复电源。
                 if (tuner != null) {
                     try {
-                        if (leaveGamesRunning && process != null && process.isAlive()) {
-                            tuner.releaseWhileGameLives();
+                        if (!restorePrivilegedTuningOnExit(process)) {
+                            tuner.releaseOnLauncherExit(process != null && process.isAlive());
                         } else {
                             tuner.cleanup();
                         }
@@ -818,16 +832,17 @@ public final class LaunchManager {
         return n;
     }
 
-    /** 强制结束所有由本启动器拉起且仍存活的 MC 进程树（应用退出时调用） */
+    /** 强制结束所有由本启动器拉起且仍存活的 MC 进程树（应用退出时调用）。整批最多 4 秒。 */
     public void killAllProcesses() {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(4);
         ProcessMonitor monitor = new ProcessMonitor();
         for (Process p : activeProcesses) {
-            if (p != null && p.isAlive()) {
-                try {
-                    monitor.forceKill(p);
-                } catch (Exception e) {
-                    try { p.destroyForcibly(); } catch (Exception ignored) {}
-                }
+            if (p == null || !p.isAlive()) continue;
+            try {
+                if (System.nanoTime() >= deadline) p.destroyForcibly();
+                else monitor.forceKillUntil(p, deadline);
+            } catch (Exception e) {
+                try { p.destroyForcibly(); } catch (Exception ignored) {}
             }
         }
         activeProcesses.clear();
@@ -866,13 +881,30 @@ public final class LaunchManager {
     }
 
     /**
+     * 游戏自己退出时可以恢复需要管理员授权的电源设置。
+     * 启动器正在退出时必须返回 false，避免关闭被授权框卡住。
+     */
+    boolean restorePrivilegedTuningOnExit(Process process) {
+        if (launcherStopping) return false;
+        if (leaveGamesRunning && process != null && process.isAlive()) return false;
+        return true;
+    }
+
+    /**
      * @param killGames {@code false} 时留下已经启动的游戏，供「关闭启动器」使用
      */
     public void shutdown(boolean killGames) {
         synchronized (lifecycleLock) {
+            launcherStopping = true;
             if (!killGames) leaveGamesRunning = true;
             if (killGames && !leaveGamesRunning) killAllProcesses();
         }
         launchExecutor.shutdownNow();
+        try {
+            // 留给收尾写备份，不等管理员授权
+            launchExecutor.awaitTermination(800, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

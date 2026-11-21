@@ -628,9 +628,17 @@ public final class LaunchProfileBuilder {
             profile.addJvmArg("-Dorg.lwjgl.util.DebugLoader=true");
         }
 
-        // 内存参数（用 preferences 覆盖 config 默认值）
-        profile.addJvmArg("-Xms" + versionSettings.memoryMin(preferences.getMinMemoryMb()) + "m");
-        profile.addJvmArg("-Xmx" + versionSettings.memoryMax(preferences.getMaxMemoryMb()) + "m");
+        // 内存参数（用 preferences 覆盖 config 默认值）。超过本机物理内存时游戏会被系统杀掉。
+        int requestedMinMb = versionSettings.memoryMin(preferences.getMinMemoryMb());
+        int requestedMaxMb = versionSettings.memoryMax(preferences.getMaxMemoryMb());
+        int launchMaxMb = MemoryBudget.capMax(requestedMaxMb, MemoryBudget.physicalBytes());
+        int launchMinMb = MemoryBudget.capMin(requestedMinMb, launchMaxMb);
+        if (launchMaxMb != requestedMaxMb) {
+            System.err.println("[PMCL] 最大内存 " + requestedMaxMb
+                    + "MB 高于本机可安全分配，启动时改为 " + launchMaxMb + "MB");
+        }
+        profile.addJvmArg("-Xms" + launchMinMb + "m");
+        profile.addJvmArg("-Xmx" + launchMaxMb + "m");
 
         // GC 类型。Aikar 或澪模式 ZGC 打开时不在这里再注入，避免两套回收器叠在一起。
         // 强制 G1 时澪模式 ZGC 不再生效；版本和自定义参数里的其他回收器由 G1Force 在生成命令时去掉。
@@ -654,11 +662,11 @@ public final class LaunchProfileBuilder {
             // ZGC 开启时跳过 G1 相关参数（build 已含 G1 参数，ZGC 模式只取 JIT+CPU+CodeCache）
             if (mioZgc) {
                 // ZGC 模式：注入 ZGC 参数集 + JIT/CPU/CodeCache（跳过 build 中的 G1 参数）
-                for (String f : MioFlags.buildZgc(versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
+                for (String f : MioFlags.buildZgc(launchMaxMb)) {
                     profile.addJvmArg(f);
                 }
                 // 仅注入非 G1 的激进参数（JIT 内联 + CPU 指令集 + CodeCache + 分配器）
-                for (String f : MioFlags.build(cores, versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
+                for (String f : MioFlags.build(cores, launchMaxMb)) {
                     if (!f.startsWith("-XX:MaxGCPauseMillis") &&
                         !f.startsWith("-XX:G1") &&
                         !f.startsWith("-XX:TargetSurvivorRatio") &&
@@ -670,13 +678,12 @@ public final class LaunchProfileBuilder {
                 }
             } else {
                 // G1 模式：注入完整激进参数集
-                for (String f : MioFlags.build(cores, versionSettings.memoryMax(preferences.getMaxMemoryMb()))) {
+                for (String f : MioFlags.build(cores, launchMaxMb)) {
                     profile.addJvmArg(f);
                 }
                 // 堆 >= 4GB 时强制 Xms == Xmx，避免运行时堆扩张停顿
-                int versionMaxMb = versionSettings.memoryMax(preferences.getMaxMemoryMb());
-                if (versionMaxMb >= 4096) {
-                    profile.addJvmArg("-Xms" + versionMaxMb + "m");
+                if (launchMaxMb >= 4096) {
+                    profile.addJvmArg("-Xms" + launchMaxMb + "m");
                 }
             }
         }
@@ -752,8 +759,10 @@ public final class LaunchProfileBuilder {
             if (lwjgl2Era && "-XstartOnFirstThread".equals(arg.trim())) {
                 continue;
             }
-            profile.addJvmArg(replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir,
-                    versionsDir, gameDir, nativesDir, account, vj.getAssets()));
+            profile.addJvmArg(MemoryBudget.clampHeapFlag(
+                    replacePlaceholders(arg, versionId, mcRoot, librariesDir, assetsDir,
+                    versionsDir, gameDir, nativesDir, account, vj.getAssets()),
+                    launchMaxMb));
         }
 
         // NilLoader / Java Agent：pmclAgents + versions/{id}/agents/*.jar
@@ -807,7 +816,7 @@ public final class LaunchProfileBuilder {
                 if (arg.isEmpty()) continue;
                 // LWJGL2 上 -XstartOnFirstThread 会卡死 createWindow
                 if (lwjgl2 && "-XstartOnFirstThread".equals(arg)) continue;
-                profile.addJvmArg(arg);
+                profile.addJvmArg(MemoryBudget.clampHeapFlag(arg, launchMaxMb));
             }
         }
 
