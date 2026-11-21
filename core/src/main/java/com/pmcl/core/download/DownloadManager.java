@@ -74,8 +74,8 @@ public final class DownloadManager {
     private final ExecutorService pool;
     /** 分片下载专用线程池：避免与批量下载竞争线程，大文件分片可独立并行 */
     private final ExecutorService chunkedPool;
-    /** 校验专用线程池（不占用下载线程），4 线程并行校验避免成为瓶颈 */
-    private final ExecutorService verifyPool = Executors.newFixedThreadPool(4);
+    /** 校验专用线程池（不占用下载线程），4 线程并行校验避免成为瓶颈。守护线程，退出后不拖住进程。 */
+    private final ExecutorService verifyPool = newDaemonPool(4, "pmcl-download-verify");
     /** 批量下载背压信号量：限制同时进行中的下载数，避免一次性提交撑爆队列 */
     private final Semaphore downloadLimiter;
     /** 分片下载器（复用线程池，避免每次创建） */
@@ -107,8 +107,8 @@ public final class DownloadManager {
         // M11 修复：优先使用 Preferences.downloadThreads，回退到 config.getDownloadThreads()
         int threads = (pref != null) ? pref.getDownloadThreads() : config.getDownloadThreads();
         threads = Math.max(1, threads); // 防止 0 导致 newFixedThreadPool 抛异常
-        this.pool = Executors.newFixedThreadPool(threads);
-        this.chunkedPool = Executors.newFixedThreadPool(Math.min(16, threads));
+        this.pool = newDaemonPool(threads, "pmcl-download");
+        this.chunkedPool = newDaemonPool(Math.min(16, threads), "pmcl-download-chunk");
         this.downloadLimiter = new Semaphore(threads);
         if (pref != null) {
             // 直接按偏好构建，跳过默认 client 的无谓构建+丢弃
@@ -136,13 +136,13 @@ public final class DownloadManager {
      * 构建 OkHttpClient：独立连接池 + 调高 maxRequestsPerHost 的 Dispatcher + HTTP/2。
      * <p>
      * 注意：每个 OkHttpClient 用独立 ConnectionPool，避免共享连接池在多客户端间
-     * 产生不预期的连接回收交互。Dispatcher 只调高并发上限，用默认的 cachedThreadPool。
+     * 产生不预期的连接回收交互。Dispatcher 用守护的 cachedThreadPool，只调高并发上限。
      */
     private static OkHttpClient buildClient(Proxy proxy, int connectTimeoutSec,
                                             boolean useProxyAuth, String proxyUser, String proxyPass) {
-        // Dispatcher：用默认 cachedThreadPool（不限制线程数），只调高并发上限
-        // 错误做法是用有限线程池 + SynchronousQueue，高并发时会拒绝任务
-        Dispatcher dispatcher = new Dispatcher();
+        // 不限制线程数。有限线程池配 SynchronousQueue 会在高并发时拒绝任务。
+        // 守护线程：卡住的连接不能在窗口关掉之后把进程留住。
+        Dispatcher dispatcher = new Dispatcher(newDaemonCache("pmcl-okhttp"));
         dispatcher.setMaxRequests(MAX_REQUESTS);
         dispatcher.setMaxRequestsPerHost(MAX_REQUESTS_PER_HOST);
 
@@ -254,6 +254,23 @@ public final class DownloadManager {
         awaitPool(pool, "download");
         awaitPool(chunkedPool, "chunked");
         awaitPool(verifyPool, "verify");
+    }
+
+    static ExecutorService newDaemonPool(int threads, String name) {
+        int n = Math.max(1, threads);
+        return Executors.newFixedThreadPool(n, r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    private static ExecutorService newDaemonCache(String name) {
+        return Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, name);
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     private static void awaitPool(ExecutorService es, String name) {

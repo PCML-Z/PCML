@@ -246,6 +246,9 @@ public final class Preferences {
     // guarded by this：同一批失败只通知 UI 一次，避免每 30 秒闪一次提示
     private transient boolean saveFailureReported = false;
     private transient volatile SaveFailureListener saveFailureListener;
+    /** 退出路径和 JVM 钩子都会调用 shutdown，只允许第一次落盘并关闭写入线程。 */
+    private final transient java.util.concurrent.atomic.AtomicBoolean shutdownStarted =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     /**
      * 配置落盘失败 / 恢复时的回调，供 UI 把「设置没能保存」显示到状态栏。
@@ -2117,6 +2120,8 @@ public final class Preferences {
      * 调用前会先 flush 确保所有待写入数据落盘。
      */
     public void shutdown() {
+        // 退出路径和 JVM 钩子都会进来。第二次再 flush 会和已经关掉的写入线程抢文件。
+        if (!shutdownStarted.compareAndSet(false, true)) return;
         try {
             flush();
         } catch (Throwable t) {

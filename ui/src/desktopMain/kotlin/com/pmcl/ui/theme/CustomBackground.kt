@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -31,6 +30,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import com.pmcl.core.theme.BackgroundDecode
+import com.pmcl.ui.page.loadPathImageBitmap
 import org.bytedeco.ffmpeg.global.avutil
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.jetbrains.skia.Bitmap
@@ -73,30 +74,38 @@ fun CustomBackground(
     }
 }
 
-/** 图片背景层：解码一次，Crop 填满窗口。 */
+/** 图片背景层：在后台按屏幕尺寸解码。超过大小上限的文件不读进内存。 */
 @Composable
 private fun ImageBackgroundLayer(path: String) {
-    val bitmap: ImageBitmap? = remember(path) {
-        try {
-            val bytes = Files.readAllBytes(Paths.get(path))
-            org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
-        } catch (e: Throwable) {
-            System.err.println("[CustomBackground] 背景图加载失败: $path ($e)")
-            null
+    var bitmap by remember(path) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(path) {
+        bitmap = withContext(Dispatchers.IO) {
+            try {
+                val file = Paths.get(path)
+                if (!Files.isRegularFile(file) || !BackgroundDecode.imageFileAllowed(Files.size(file))) {
+                    if (Files.isRegularFile(file)) {
+                        System.err.println("[CustomBackground] 背景图超过上限，已跳过: $path")
+                    }
+                    null
+                } else {
+                    loadPathImageBitmap(path)
+                }
+            } catch (e: Throwable) {
+                System.err.println("[CustomBackground] 背景图加载失败: $path ($e)")
+                null
+            }
         }
     }
-    if (bitmap != null) {
+    val current = bitmap
+    if (current != null) {
         Image(
-            bitmap = bitmap,
+            bitmap = current,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop
         )
     }
 }
-
-/** 解码宽度上限：更大的视频缩放解码，降低每帧像素搬运量 */
-private const val MAX_DECODE_WIDTH = 1600
 
 /**
  * 视频背景层：后台 IO 协程用 FFmpeg 逐帧解码，按视频帧率节流推送到 Compose 状态。
@@ -125,16 +134,15 @@ private fun VideoBackgroundLayer(path: String, frameBlur: Boolean, blurRadius: a
                     pixelFormat = avutil.AV_PIX_FMT_BGRA
                     start()
                 }
-                // 高分辨率视频缩放解码，节省 CPU（swscale 在解码侧完成）
-                if (grabber.imageWidth > MAX_DECODE_WIDTH) {
-                    val w = MAX_DECODE_WIDTH
-                    val h = (grabber.imageHeight.toLong() * w / grabber.imageWidth).toInt() and -2
+                val sized = BackgroundDecode.videoSize(grabber.imageWidth, grabber.imageHeight)
+                if (sized == null) return@withContext
+                if (sized[0] != grabber.imageWidth || sized[1] != grabber.imageHeight) {
                     grabber.stop(); grabber.release()
                     grabber = FFmpegFrameGrabber(path).apply {
                         audioChannels = 0
                         pixelFormat = avutil.AV_PIX_FMT_BGRA
-                        imageWidth = w
-                        imageHeight = h
+                        imageWidth = sized[0]
+                        imageHeight = sized[1]
                         start()
                     }
                 }
@@ -165,6 +173,7 @@ private fun VideoBackgroundLayer(path: String, frameBlur: Boolean, blurRadius: a
                         val h = f.imageHeight
                         val stride = f.imageStride
                         if (w <= 0 || h <= 0 || stride < w * 4) continue
+                        if (!BackgroundDecode.frameBytesAllowed(stride, h)) break
                         info = ImageInfo(w, h, ColorType.BGRA_8888, ColorAlphaType.OPAQUE)
                         pixels = ByteArray(stride * h)
                         for (i in 0..1) {
