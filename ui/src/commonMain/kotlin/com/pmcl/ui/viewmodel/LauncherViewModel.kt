@@ -67,6 +67,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,10 +76,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -461,7 +465,9 @@ class LauncherViewModel {
         }
     }
 
-    @Volatile private var shutDown = false
+    private val shutDown = AtomicBoolean(false)
+    /** 任一关闭要求留下游戏后，后来的强制关闭不能再杀掉它。 */
+    private val keepGames = AtomicBoolean(false)
 
     /**
      * 优雅关闭：清理联机/游戏进程、落盘偏好、关闭下载与日志，再取消协程。
@@ -473,8 +479,13 @@ class LauncherViewModel {
     fun shutdownLeavingGame() = shutdown(killGames = false)
 
     private fun shutdown(killGames: Boolean) {
-        if (shutDown) return
-        shutDown = true
+        if (!killGames) keepGames.set(true)
+        if (!shutDown.compareAndSet(false, true)) {
+            if (!killGames) {
+                try { core.launch().shutdown(false) } catch (_: Throwable) {}
+            }
+            return
+        }
         try {
             preheatGeneration.incrementAndGet()
             preheatJob?.cancel()
@@ -496,9 +507,30 @@ class LauncherViewModel {
         try { syncListener?.let { core.githubSync()?.removeListener(it) } } catch (_: Throwable) {}
         try { musicListener?.let { musicPlayer.removeListener(it) } } catch (_: Throwable) {}
         try { queueListener?.let { core.downloadQueue().removeListener(it) } } catch (_: Throwable) {}
-        try { core.shutdown(killGames) } catch (_: Throwable) {}
+        flushAccounts()
+        try { core.shutdown(!keepGames.get()) } catch (_: Throwable) {}
         try { stopMusic() } catch (_: Throwable) {}
         scope.cancel()
+    }
+
+    /** 退出前把内存里的账号写完。取消协程会丢掉还在排队的保存。 */
+    private fun flushAccounts() {
+        try {
+            runBlocking {
+                withTimeoutOrNull(3_000) {
+                    accountSaveMutex.withLock {
+                        val latest = synchronized(accountLock) {
+                            com.pmcl.core.auth.AccountStore(_accounts.value, _account.value?.uuid)
+                        }
+                        withContext(Dispatchers.IO) {
+                            core.auth().saveStore(latest, accountFile)
+                        }
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            System.err.println("[LauncherViewModel] 退出时保存账号失败: " + (t.message ?: t.toString()))
+        }
     }
 
     /** 账号持久化文件 */

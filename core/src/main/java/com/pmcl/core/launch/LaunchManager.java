@@ -33,6 +33,8 @@ public final class LaunchManager {
     public static final int EXIT_DETACHED = -101;
 
     private volatile boolean leaveGamesRunning = false;
+    /** 串行化「留下游戏」和「结束游戏」，避免后一次关闭把已经留下的进程杀掉。 */
+    private final Object lifecycleLock = new Object();
 
     private final LauncherConfig config;
     private final Preferences preferences;
@@ -590,9 +592,15 @@ public final class LaunchManager {
                 if (onLog != null) onLog.accept(errMsg);
                 throw new RuntimeException("启动失败: " + root.getMessage(), e);
             } finally {
-                // 澪模式 cleanup：终止 caffeinate、恢复系统电源状态（必须 finally 确保恢复）
+                // 游戏还在、启动器要退出时不能弹管理员框，也不能拆掉跟着游戏走的防休眠。
                 if (tuner != null) {
-                    try { tuner.cleanup(); } catch (Exception e) {
+                    try {
+                        if (leaveGamesRunning && process != null && process.isAlive()) {
+                            tuner.releaseWhileGameLives();
+                        } else {
+                            tuner.cleanup();
+                        }
+                    } catch (Exception e) {
                         System.err.println("[MioMode] cleanup 失败: " + e.getMessage());
                     }
                 }
@@ -861,8 +869,10 @@ public final class LaunchManager {
      * @param killGames {@code false} 时留下已经启动的游戏，供「关闭启动器」使用
      */
     public void shutdown(boolean killGames) {
-        if (!killGames) leaveGamesRunning = true;
-        if (killGames) killAllProcesses();
+        synchronized (lifecycleLock) {
+            if (!killGames) leaveGamesRunning = true;
+            if (killGames && !leaveGamesRunning) killAllProcesses();
+        }
         launchExecutor.shutdownNow();
     }
 }

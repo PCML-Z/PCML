@@ -151,6 +151,25 @@ public final class ProcessTuner {
      * <p>
      * L3 恢复若再次弹授权框且用户拒绝，只写入备份文件，不再阻塞。
      */
+    /**
+     * 启动器退出、游戏进程还活着。只停掉不跟随游戏退出的辅助进程。
+     * 不调用需要管理员授权的恢复：退出过程弹授权框会把关闭卡住。
+     */
+    public void releaseWhileGameLives() {
+        stopHelper(keepAwakeProcess, "keep-awake");
+        keepAwakeProcess = null;
+        if (originalLowPowerMode != null) {
+            int restore = originalLowPowerMode;
+            originalLowPowerMode = null;
+            try {
+                Path backup = com.pmcl.core.LauncherConfig.pmclHome().resolve("mio_pmset_backup.txt");
+                Files.createDirectories(backup.getParent());
+                Files.writeString(backup, String.valueOf(restore));
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     public void cleanup() {
         stopHelper(caffeinateProcess, "caffeinate");
         caffeinateProcess = null;
