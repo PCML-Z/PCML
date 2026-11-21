@@ -19,15 +19,23 @@ public final class InstallInterruptedException extends RuntimeException {
         super(message == null || message.isBlank() ? "安装已中断" : message, cause);
     }
 
-    /** 判断异常链是否表示暂停/取消中断。 */
+    /** 判断异常链是否表示用户暂停或取消。连接超时不是暂停。 */
     public static boolean isInterrupted(Throwable e) {
         Throwable cur = e;
         while (cur != null) {
             if (cur instanceof InstallInterruptedException) return true;
             if (cur instanceof InterruptedException) return true;
-            if (cur instanceof java.io.InterruptedIOException) return true;
+            if (cur instanceof java.io.InterruptedIOException && !isTimeout(cur)) return true;
             cur = cur.getCause();
         }
         return false;
+    }
+
+    private static boolean isTimeout(Throwable error) {
+        if (error instanceof java.net.SocketTimeoutException) return true;
+        String message = error.getMessage();
+        if (message == null) return false;
+        String lower = message.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("timeout") || lower.contains("timed out");
     }
 }

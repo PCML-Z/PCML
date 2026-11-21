@@ -728,6 +728,9 @@ public final class DownloadQueueManager {
     private void schedule(QueueTask task, Runnable work) {
         final long gen = ++task.runGeneration;
         Future<?> future = executor.submit(() -> {
+            // 上一个任务的暂停会留下中断标记。线程池复用这条线程时，不先清掉的话，
+            // 新任务第一次进度回调就会被当成已暂停，队列从此无法再下载。
+            Thread.interrupted();
             // 检查是否已被取消或暂停
             if (task.cancelRequested) {
                 task.status = TaskStatus.CANCELLED;
@@ -796,6 +799,7 @@ public final class DownloadQueueManager {
                 task.finishedAt = System.currentTimeMillis();
                 notifyListeners();
             } finally {
+                Thread.interrupted();
                 if (gen == task.runGeneration) {
                     runningFutures.remove(task.id);
                 }
