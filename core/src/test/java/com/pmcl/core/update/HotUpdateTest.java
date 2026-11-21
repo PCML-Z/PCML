@@ -1,6 +1,8 @@
 package com.pmcl.core.update;
 
 import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
@@ -8,6 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -169,6 +174,45 @@ class HotUpdateTest {
     @Test
     void missingInstallDirectorySkipsTheCheck(@TempDir Path home) throws Exception {
         assertEquals(AppResourceCheck.Status.SKIPPED, AppResourceCheck.check(home, null).status());
+    }
+
+    @Test
+    void changedFilesDownloadTogether(@TempDir Path root) throws Exception {
+        byte[] first = "alpha-bytes".getBytes(StandardCharsets.UTF_8);
+        byte[] second = "beta-bytes!".getBytes(StandardCharsets.UTF_8);
+        HotUpdateManifest.FileEntry a = file("app/a.dat", first);
+        HotUpdateManifest.FileEntry b = file("app/b.dat", second);
+        AtomicInteger inflight = new AtomicInteger();
+        AtomicInteger peak = new AtomicInteger();
+        CountDownLatch started = new CountDownLatch(2);
+        HotUpdateDownloader.stage(root, List.of(a, b), null, null, (url, dest, progress) -> {
+            int now = inflight.incrementAndGet();
+            peak.accumulateAndGet(now, Math::max);
+            started.countDown();
+            try {
+                assertTrue(started.await(2, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("等待并行下载时被打断", e);
+            }
+            Files.write(dest, url.endsWith("a.dat") ? first : second);
+            progress.accept(Files.size(dest));
+            inflight.decrementAndGet();
+        });
+        assertTrue(peak.get() >= 2);
+        assertEquals("alpha-bytes", Files.readString(root.resolve("app/a.dat")));
+        assertEquals("beta-bytes!", Files.readString(root.resolve("app/b.dat")));
+    }
+
+    @Test
+    void badDownloadIsDeleted(@TempDir Path root) throws Exception {
+        byte[] good = "good-bytes".getBytes(StandardCharsets.UTF_8);
+        HotUpdateManifest.FileEntry entry = file("app/a.dat", good);
+        IOException error = assertThrows(IOException.class, () ->
+                HotUpdateDownloader.stage(root, List.of(entry), null, null, (url, dest, progress) ->
+                        Files.writeString(dest, "tampered!!")));
+        assertTrue(error.getMessage().contains("校验失败"));
+        assertFalse(Files.exists(root.resolve("app/a.dat")));
     }
 
     private static HotUpdateManifest.FileEntry entry(String path, String sha, long size) {

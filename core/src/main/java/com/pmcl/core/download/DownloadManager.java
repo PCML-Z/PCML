@@ -933,10 +933,11 @@ public final class DownloadManager {
                              java.nio.file.StandardOpenOption.CREATE,
                              java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
                              java.nio.file.StandardOpenOption.WRITE)) {
-                    byte[] buf = new byte[8192];
+                    byte[] buf = new byte[BUFFER_SIZE];
                     long total = 0;
                     int n;
                     while ((n = in.read(buf)) > 0) {
+                        throwIfInterrupted();
                         total += n;
                         if (total > maxBytes) {
                             throw new IOException("下载过大 (>" + maxBytes + "): " + url);
