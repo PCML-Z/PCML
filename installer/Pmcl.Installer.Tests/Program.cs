@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http.Headers;
+
 namespace Pmcl.Installer.Tests;
 
 internal static class Program
@@ -12,6 +15,8 @@ internal static class Program
         failed += Check(RejectsJar, "jar");
         failed += Check(PlansNativeInstaller, "install plan");
         failed += Check(FormatsProgress, "progress text");
+        failed += Check(DownloadsInChunks, "chunked download");
+        failed += Check(FallsBackWithoutRange, "range fallback");
         return failed == 0 ? 0 : 1;
     }
 
@@ -137,6 +142,84 @@ internal static class Program
         Expect(ProgressText.Remaining(75), "约 1 分 15 秒");
         Expect(ProgressText.Remaining(600), "约 10 分");
         Expect(ProgressText.Remaining(7200), "约 2 小时");
+    }
+
+    private static ReleaseAsset TestAsset(long size) => new(
+        "pmcl-2.10.2-macos-arm64.pkg",
+        new Uri("https://github.com/PCML-Z/PCML/releases/download/v2.10.2/pmcl-2.10.2-macos-arm64.pkg"),
+        size, "2.10.2");
+
+    private static void DownloadsInChunks()
+    {
+        var data = new byte[9 * 1024 * 1024];
+        new Random(42).NextBytes(data);
+        var handler = new FakeHandler(data, range: true);
+        using var http = new HttpClient(handler);
+
+        RunDownload(http, data, out var dest, out var reported);
+        if (handler.Requests < 2)
+            throw new InvalidOperationException("expected parallel chunks, got " + handler.Requests);
+        VerifyDownload(data, dest, reported);
+    }
+
+    private static void FallsBackWithoutRange()
+    {
+        var data = new byte[5 * 1024 * 1024];
+        new Random(7).NextBytes(data);
+        var handler = new FakeHandler(data, range: false);
+        using var http = new HttpClient(handler);
+
+        RunDownload(http, data, out var dest, out var reported);
+        if (handler.Requests != 1)
+            throw new InvalidOperationException("expected single fallback request, got " + handler.Requests);
+        VerifyDownload(data, dest, reported);
+    }
+
+    private static void RunDownload(HttpClient http, byte[] data, out string dest, out long reported)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "pmcl-dl-test-" + Guid.NewGuid().ToString("N"));
+        var asset = TestAsset(data.Length);
+        dest = Path.Combine(dir, asset.Name);
+        long seen = 0;
+        ReleaseDownloader.DownloadAsync(
+            http, asset, dest, new Progress<long>(v => seen = Math.Max(seen, v)), CancellationToken.None)
+            .GetAwaiter().GetResult();
+        reported = seen;
+    }
+
+    private static void VerifyDownload(byte[] expected, string dest, long reported)
+    {
+        if (reported != expected.Length)
+            throw new InvalidOperationException("progress " + reported + " != " + expected.Length);
+        if (!File.ReadAllBytes(dest).AsSpan().SequenceEqual(expected))
+            throw new InvalidOperationException("downloaded bytes differ");
+        Directory.Delete(Path.GetDirectoryName(dest)!, recursive: true);
+    }
+
+    private sealed class FakeHandler(byte[] data, bool range) : HttpMessageHandler
+    {
+        private int _requests;
+
+        public int Requests => Volatile.Read(ref _requests);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requests);
+            var part = request.Headers.Range?.Ranges.FirstOrDefault();
+            if (range && part is not null)
+            {
+                var from = (int)(part.From ?? 0);
+                var to = (int)(part.To ?? data.Length - 1);
+                var sliced = new ByteArrayContent(data, from, to - from + 1);
+                sliced.Headers.ContentRange = new ContentRangeHeaderValue(from, to, data.Length);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = sliced });
+            }
+
+            var full = new ByteArrayContent(data);
+            full.Headers.ContentLength = data.Length;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = full });
+        }
     }
 
     private static void Expect(string actual, string expected)

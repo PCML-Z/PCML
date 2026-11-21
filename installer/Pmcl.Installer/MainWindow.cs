@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
@@ -463,13 +462,11 @@ public sealed class MainWindow : Window
         var token = _run.Token;
         var asset = _asset;
         var dest = Path.Combine(Path.GetTempPath(), "pmcl-installer", asset.Name);
-        var watch = new Stopwatch();
 
         try
         {
             SetPhase(Phase.Downloading);
             _speedWindow.Clear();
-            watch.Start();
             var progress = new ThrottledProgress(got => Dispatcher.UIThread.Post(() =>
             {
                 var now = Environment.TickCount64;
@@ -489,7 +486,6 @@ public sealed class MainWindow : Window
             }), asset.Size);
 
             await ReleaseDownloader.DownloadAsync(_http, asset, dest, progress, token);
-            watch.Stop();
 
             SetPhase(Phase.Installing);
             await PackageInstall.RunAsync(dest, token);

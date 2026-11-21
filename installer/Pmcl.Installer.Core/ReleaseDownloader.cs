@@ -135,9 +135,10 @@ public static class ReleaseDownloader
             {
                 var n = await input.ReadAsync(buffer, cancel);
                 if (n == 0) break;
+                var position = offset + got;
                 got += n;
                 if (got > expected) throw new InvalidOperationException("下载内容超过分段大小");
-                await RandomAccess.WriteAsync(handle, buffer.AsMemory(0, n), offset + got, cancel);
+                await RandomAccess.WriteAsync(handle, buffer.AsMemory(0, n), position, cancel);
                 count(n);
             }
             if (got != expected) throw new InvalidOperationException("分段没有下完");
