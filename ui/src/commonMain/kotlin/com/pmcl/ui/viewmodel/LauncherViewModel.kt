@@ -388,7 +388,7 @@ class LauncherViewModel {
         try {
             val wanted = manifest.files().filter { report.paths().contains(it.path()) }
             val staging = home.resolve("updates").resolve("staging").resolve("repair-" + report.versionKey())
-            HotUpdateDownloader.stage(core.downloads(), staging, wanted, null)
+            HotUpdateDownloader.stage(core.downloads(), staging, wanted, null, ::githubAssetUrl)
             val manifestFile = staging.resolve("manifest.json")
             manifest.write(manifestFile)
             HotUpdateInstaller.launchAfterExit(
@@ -400,6 +400,12 @@ class LauncherViewModel {
             repairExit.set(false)
             _appResourceProblem.value = I18n.t("update.integrity_repair_failed", e.message ?: report.detail())
         }
+    }
+
+    /** 清单里的地址在 github.com。API 资产地址连得上，文件内容相同。 */
+    private fun githubAssetUrl(url: String): String {
+        val api = core.githubSync()?.releaseAssetApiUrl(url)
+        return if (api.isNullOrBlank()) url else api
     }
 
     /** 只下载计划里变化的文件，校验后等退出再替换。 */
@@ -428,7 +434,7 @@ class LauncherViewModel {
                 }
                 val staging = home.resolve("updates").resolve("staging").resolve(manifest.version())
                 withContext(Dispatchers.IO) {
-                    HotUpdateDownloader.stage(core.downloads(), staging, plan.downloads(), onProgress)
+                    HotUpdateDownloader.stage(core.downloads(), staging, plan.downloads(), onProgress, ::githubAssetUrl)
                     val manifestFile = staging.resolve("manifest.json")
                     manifest.write(manifestFile)
                     HotUpdateInstaller.launchAfterExit(

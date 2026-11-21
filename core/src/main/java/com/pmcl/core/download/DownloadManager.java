@@ -891,6 +891,11 @@ public final class DownloadManager {
                 })
                 .build();
         Request.Builder reqBuilder = new Request.Builder().url(url).get();
+        if (com.pmcl.core.update.GitHubAssetUrls.isApiAsset(url)) {
+            // 不带这个头时，API 不返回文件本体。
+            reqBuilder.header("Accept", "application/octet-stream");
+            reqBuilder.header("User-Agent", "PMCL-Updater");
+        }
         if (rawBody) {
             reqBuilder.header("Accept-Encoding", "identity");
         }

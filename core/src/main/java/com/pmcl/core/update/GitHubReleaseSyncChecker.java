@@ -53,6 +53,8 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
     private final AtomicBoolean checking = new AtomicBoolean(false);
     private volatile ScheduledFuture<?> checkTask;
     private volatile long currentInterval = CHECK_INTERVAL_MINUTES;
+    /** 本次 Release 里，浏览器下载地址对应的 API 资产地址。 */
+    private volatile java.util.Map<String, String> assetApiUrls = java.util.Map.of();
 
     public GitHubReleaseSyncChecker(String clientVersion) {
         this.clientVersion = (clientVersion == null) ? "0.0.0" : clientVersion;
@@ -225,6 +227,7 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
                 return;
             }
             JsonObject release = JsonParser.parseString(resp.body()).getAsJsonObject();
+            assetApiUrls = GitHubAssetUrls.index(release);
             String remoteVersion = releaseVersion(release);
             if (remoteVersion.isEmpty() || !isNewer(remoteVersion, clientVersion)) {
                 restoreNormalInterval();
@@ -235,7 +238,8 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
             try {
                 hot = readHotUpdate(release);
             } catch (IOException e) {
-                notifyError("热更新清单无效: " + e.getMessage(), e);
+                if (isTransferTimeout(e)) notifyError("下载热更新清单超时", e);
+                else notifyError("热更新清单无效: " + e.getMessage(), e);
                 return;
             }
             if (hot != null) {
@@ -468,31 +472,74 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
         }
         if (asset == null) asset = fallback;
         if (asset == null) return null;
-        String url = asset.has("browser_download_url") && !asset.get("browser_download_url").isJsonNull()
+        String browser = asset.has("browser_download_url") && !asset.get("browser_download_url").isJsonNull()
                 ? asset.get("browser_download_url").getAsString() : "";
-        if (!url.startsWith("https://")) {
-            throw new IOException("热更新清单必须使用 HTTPS");
-        }
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(HTTP_TIMEOUT_SECONDS))
-                .header("Accept", "application/json")
-                .header("User-Agent", "PMCL-Updater")
-                .GET()
-                .build();
-        HttpResponse<String> resp;
-        try {
-            resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("下载热更新清单被中断", e);
-        }
-        if (resp.statusCode() != 200) {
-            throw new IOException("下载热更新清单失败 HTTP " + resp.statusCode());
-        }
-        String body = resp.body();
+        String api = asset.has("url") && !asset.get("url").isJsonNull()
+                ? asset.get("url").getAsString() : "";
+        String url = GitHubAssetUrls.isApiAsset(api) ? api : browser;
+        String body = downloadReleaseText(url);
         if (body.length() > 1_048_576) throw new IOException("热更新清单过大");
         return HotUpdateManifest.parse(body);
+    }
+
+    /** 给随后的热更新文件下载用。没有对应 API 地址时原样返回。 */
+    public String releaseAssetApiUrl(String downloadUrl) {
+        return GitHubAssetUrls.resolve(downloadUrl, assetApiUrls);
+    }
+
+    /**
+     * 从 API 资产地址或浏览器地址下载文本。API 会跳到文件 CDN，只跟随 GitHub 的主机。
+     */
+    private String downloadReleaseText(String url) throws IOException {
+        if (!url.startsWith("https://")) throw new IOException("热更新清单必须使用 HTTPS");
+        String current = url;
+        for (int hop = 0; hop < 5; hop++) {
+            if (!GitHubAssetUrls.allowedDownloadHost(current)) {
+                throw new IOException("热更新地址不在允许的主机上");
+            }
+            String ssrf = com.pmcl.core.util.SsrfChecker.validate(current);
+            if (ssrf != null) throw new IOException("热更新地址被拒绝: " + ssrf);
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(current))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", GitHubAssetUrls.isApiAsset(current)
+                            ? "application/octet-stream" : "application/json, */*")
+                    .header("User-Agent", "PMCL-Updater")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp;
+            try {
+                resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("下载热更新清单被中断", e);
+            } catch (java.net.http.HttpConnectTimeoutException e) {
+                throw new IOException("HTTP connect timed out", e);
+            } catch (java.net.http.HttpTimeoutException e) {
+                throw new IOException("HTTP connect timed out", e);
+            }
+            int code = resp.statusCode();
+            if (code >= 300 && code < 400) {
+                String loc = resp.headers().firstValue("location").orElse("");
+                if (loc.isEmpty()) throw new IOException("热更新重定向缺少地址");
+                current = URI.create(current).resolve(loc).toString();
+                continue;
+            }
+            if (code != 200) throw new IOException("下载热更新清单失败 HTTP " + code);
+            return resp.body();
+        }
+        throw new IOException("热更新重定向次数过多");
+    }
+
+    private static boolean isTransferTimeout(Throwable error) {
+        Throwable cur = error;
+        while (cur != null) {
+            if (cur instanceof java.net.http.HttpTimeoutException) return true;
+            String msg = cur.getMessage();
+            if (msg != null && msg.toLowerCase(java.util.Locale.ROOT).contains("timed out")) return true;
+            cur = cur.getCause();
+        }
+        return false;
     }
 
     /** @see UpdateVersions#isNewer */

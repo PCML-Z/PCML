@@ -17,12 +17,27 @@ public final class HotUpdateDownloader {
     public static Path stage(DownloadManager downloads, Path stagingRoot,
                              List<HotUpdateManifest.FileEntry> files,
                              Consumer<Long> onProgress) throws IOException {
+        return stage(downloads, stagingRoot, files, onProgress, null);
+    }
+
+    /**
+     * @param rewrite 把清单里的浏览器地址换成 API 资产地址。校验仍按清单上的哈希。
+     */
+    public static Path stage(DownloadManager downloads, Path stagingRoot,
+                             List<HotUpdateManifest.FileEntry> files,
+                             Consumer<Long> onProgress,
+                             java.util.function.Function<String, String> rewrite) throws IOException {
         if (downloads == null) throw new IOException("下载组件不可用");
         Files.createDirectories(stagingRoot);
         long done = 0;
         for (HotUpdateManifest.FileEntry file : files) {
             HotUpdateManifest.FileEntry.validatePath(file.path());
             if (file.url().isBlank()) throw new IOException("热更新文件没有下载地址: " + file.path());
+            String url = file.url();
+            if (rewrite != null) {
+                String next = rewrite.apply(url);
+                if (next != null && !next.isBlank()) url = next;
+            }
             if (file.size() > MAX_FILE_BYTES) {
                 throw new IOException("热更新文件超过上限: " + file.path());
             }
@@ -31,7 +46,7 @@ public final class HotUpdateDownloader {
                 throw new IOException("热更新暂存路径越界: " + file.path());
             }
             long start = done;
-            downloads.downloadToSsrfChecked(file.url(), dest, read -> {
+            downloads.downloadToSsrfChecked(url, dest, read -> {
                 if (onProgress != null) onProgress.accept(start + read);
             }, MAX_FILE_BYTES);
             if (Files.size(dest) != file.size()) {
