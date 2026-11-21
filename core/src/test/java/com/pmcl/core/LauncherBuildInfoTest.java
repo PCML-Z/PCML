@@ -15,4 +15,17 @@ class LauncherBuildInfoTest {
         assertEquals("Java 21", LauncherBuildInfo.frameworkOf("21", "FreeBSD"));
         assertEquals("", LauncherBuildInfo.runtimeOf("", ""));
     }
+
+    @Test
+    void stampedVersionWinsWhenManifestHasNoVersion() {
+        assertEquals("2.11.0", LauncherBuildInfo.launcherVersion("2.11.0", null, "2.2a"));
+        assertEquals("2.11.0", LauncherBuildInfo.launcherVersion("2.11.0", "", null));
+    }
+
+    @Test
+    void missingStampDoesNotInventAnOldVersion() {
+        assertEquals("", LauncherBuildInfo.launcherVersion(null, null, null));
+        assertEquals("", LauncherBuildInfo.launcherVersion("  ", "", "  "));
+        assertEquals("2.11.0", LauncherBuildInfo.launcherVersion(null, "2.11.0", "2.2a"));
+    }
 }

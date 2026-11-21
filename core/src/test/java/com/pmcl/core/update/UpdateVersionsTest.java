@@ -42,4 +42,17 @@ class UpdateVersionsTest {
         assertFalse(UpdateVersions.isNewer(null, "1.0.0"));
         assertFalse(UpdateVersions.isNewer("1.0.0", null));
     }
+
+    @Test
+    void olderReleaseIsNotAnUpdate() {
+        assertFalse(UpdateVersions.isNewer("2.10.4", "2.11.0"));
+        assertFalse(UpdateVersions.isNewer("2.11.0", "2.11.0"));
+        assertTrue(UpdateVersions.isNewer("2.11.1", "2.11.0"));
+    }
+
+    @Test
+    void blankInstalledVersionIsNotUpdated() {
+        assertFalse(UpdateVersions.isNewer("2.10.4", ""));
+        assertFalse(UpdateVersions.isNewer("2.10.4", "   "));
+    }
 }

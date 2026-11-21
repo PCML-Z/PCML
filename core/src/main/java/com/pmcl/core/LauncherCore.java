@@ -31,6 +31,7 @@ import com.pmcl.core.translate.TranslateClient;
 import com.pmcl.core.util.PastebinClient;
 import com.pmcl.core.update.SelfUpdater;
 import com.pmcl.core.update.GitHubReleaseSyncChecker;
+import com.pmcl.core.update.UpdateVersions;
 import com.pmcl.core.version.VersionManager;
 import com.pmcl.core.backup.TimeMachine;
 import com.pmcl.core.gamecontent.WorldManager;
@@ -401,13 +402,20 @@ public final class LauncherCore {
     public InstanceManager instances() { return instanceManager; }
     public String launcherVersion() { return currentLauncherVersion(); }
 
-    /** 从构建产物 Manifest 读取版本；IDE 运行时回退开发版本。 */
+    /** 远程版本是否高于本次构建。更新入口用它挡住降级。 */
+    public boolean isNewerThanInstalled(String remoteVersion) {
+        return UpdateVersions.isNewer(remoteVersion, currentLauncherVersion());
+    }
+
+    private static volatile String cachedLauncherVersion;
+
+    /** 与窗口标题相同，读 build-info。进程内版本不会变。 */
     private static String currentLauncherVersion() {
-        String version = LauncherCore.class.getPackage().getImplementationVersion();
-        if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "2.2a");
-        }
-        return version;
+        String cached = cachedLauncherVersion;
+        if (cached != null) return cached;
+        String resolved = LauncherBuildInfo.load().binaryVersion();
+        cachedLauncherVersion = resolved;
+        return resolved;
     }
 
     /**

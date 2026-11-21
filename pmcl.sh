@@ -57,10 +57,10 @@ case "$MODE" in
         ;;
     cli)
         shift
-        JAR_PATH="$SCRIPT_DIR/cli/build/libs/cli.jar"
+        JAR_PATH="$SCRIPT_DIR/cli/build/libs/cli-all.jar"
         if [ ! -f "$JAR_PATH" ]; then
             echo "错误: 未找到 PMCL CLI jar: $JAR_PATH"
-            echo "请先运行: ./gradlew :cli:jar"
+            echo "请先运行: ./gradlew :cli:fatJar"
             exit 1
         fi
         exec java -jar "$JAR_PATH" "$@"
@@ -76,7 +76,7 @@ case "$MODE" in
         echo ""
         echo "前置条件:"
         echo "  - 已安装 Java 21+（验证: java -version）"
-        echo "  - 已构建产物（./gradlew :ui:fatJar 或 ./gradlew :cli:jar）"
+        echo "  - 已构建产物（./gradlew :ui:fatJar 或 ./gradlew :cli:fatJar）"
         exit 0
         ;;
     *)

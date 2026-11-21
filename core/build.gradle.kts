@@ -62,8 +62,8 @@ dependencies {
     api(project(":plugin-api"))
     // JSON 解析（DataCache 的公共 API 暴露 TypeToken，故用 api 使其传递可用）
     api(libs.gson)
-    // HTTP 客户端
-    implementation(libs.okhttp)
+    // HTTP 客户端。公共方法返回 OkHttpClient，调用方需要能看见这个类型。
+    api(libs.okhttp)
     // 系统硬件信息（内存、CPU、操作系统）
     implementation(libs.oshi)
     // 日志

@@ -66,13 +66,20 @@ public final class LauncherBuildInfo {
     }
 
     public String binaryVersion() {
-        String stamped = props.getProperty("version", "").trim();
-        if (!stamped.isEmpty()) return stamped;
-        String version = LauncherBuildInfo.class.getPackage().getImplementationVersion();
-        if (version == null || version.isBlank()) {
-            version = System.getProperty("pmcl.version", "");
-        }
-        return version == null ? "" : version.trim();
+        return launcherVersion(props.getProperty("version", ""),
+                LauncherBuildInfo.class.getPackage().getImplementationVersion(),
+                System.getProperty("pmcl.version"));
+    }
+
+    /**
+     * 标题和更新检查必须用同一次构建写入的版本。
+     * 桌面包里先加载的 jar 可能没有 Implementation-Version，空版本不能再当成 2.2a。
+     */
+    public static String launcherVersion(String stamped, String implementationVersion, String systemProperty) {
+        if (stamped != null && !stamped.isBlank()) return stamped.trim();
+        if (implementationVersion != null && !implementationVersion.isBlank()) return implementationVersion.trim();
+        if (systemProperty != null && !systemProperty.isBlank()) return systemProperty.trim();
+        return "";
     }
 
     public String kotlinVersion() {

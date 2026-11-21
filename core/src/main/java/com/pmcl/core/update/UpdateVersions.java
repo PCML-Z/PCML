@@ -7,15 +7,16 @@ package com.pmcl.core.update;
  * letter/build suffix so {@code 1.3.0c} is newer than {@code 1.3.0}, while
  * {@code 1.3.1} remains newer than {@code 1.3.0c}.
  */
-final class UpdateVersions {
+public final class UpdateVersions {
 
     private UpdateVersions() {}
 
     /**
      * @return true iff {@code remote} is strictly newer than {@code current}
      */
-    static boolean isNewer(String remote, String current) {
+    public static boolean isNewer(String remote, String current) {
         if (remote == null || current == null) return false;
+        if (remote.isBlank() || current.isBlank()) return false;
         if (remote.equals(current)) return false;
         String[] r = remote.split("\\.");
         String[] c = current.split("\\.");

@@ -8,6 +8,8 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
+val pmclVersion = providers.gradleProperty("pmcl.version").orElse("2.2a")
+
 dependencies {
     implementation(project(":core"))
     // 显式声明：CLI 直接引用 com.pmcl.plugin.*（PluginInfo、PluginPackageParser 等），
@@ -18,17 +20,39 @@ dependencies {
     implementation(libs.slf4j.simple)
 }
 
-// 允许 application 插件运行
+// 给桌面端依赖的是这个薄 jar。把 core 再打进这里会让启动器 classpath 上出现两份核心类，
+// 先加载的那份没有 Implementation-Version，更新检查就会把新版本看成 2.2a。
 tasks.jar {
-    dependsOn(":core:jar")
     manifest {
         attributes(
-            "Main-Class" to "com.pmcl.cli.PmclCli"
+            "Main-Class" to "com.pmcl.cli.PmclCli",
+            "Implementation-Version" to pmclVersion.get()
         )
     }
-    // 将依赖打包进 fat jar
+}
+
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    description = "Standalone CLI jar. pmcl.sh cli uses this."
+    dependsOn(tasks.jar, configurations.runtimeClasspath)
+    archiveBaseName.set("cli")
+    archiveVersion.set("")
+    archiveClassifier.set("all")
+    archiveFileName.set("cli-all.jar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    isZip64 = true
+    manifest {
+        attributes(
+            "Main-Class" to "com.pmcl.cli.PmclCli",
+            "Implementation-Version" to pmclVersion.get()
+        )
+    }
+    from(tasks.jar.get().archiveFile.map { zipTree(it) })
     from({
         configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) }
     })
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude("META-INF/MANIFEST.MF")
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    exclude("module-info.class")
+    exclude("META-INF/versions/*/module-info.class")
 }

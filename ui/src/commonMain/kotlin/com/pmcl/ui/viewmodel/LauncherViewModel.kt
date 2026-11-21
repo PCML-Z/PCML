@@ -413,6 +413,11 @@ class LauncherViewModel {
         val offer = _hotOffer.value ?: return
         if (repairExit.get()) return
         val manifest = offer.first
+        if (!core.isNewerThanInstalled(manifest.version())) {
+            _hotOffer.value = null
+            _pushStatusText.value = I18n.t("update.hot_already")
+            return
+        }
         scope.launch {
             try {
                 _pushStatusText.value = I18n.t("update.hot_status_downloading")
@@ -453,6 +458,11 @@ class LauncherViewModel {
     /** 用户确认下载发现的更新 */
     fun downloadPushedUpdate(onProgress: (Long) -> Unit) {
         val info = _pushedUpdate.value ?: return
+        if (!core.isNewerThanInstalled(info.version)) {
+            _pushedUpdate.value = null
+            _pushStatusText.value = I18n.t("update.hot_already")
+            return
+        }
         val updater = core.selfUpdater() ?: return
         scope.launch {
             try {
