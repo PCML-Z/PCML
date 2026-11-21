@@ -1,22 +1,11 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-
 package com.pmcl.ui.page
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,12 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -42,7 +26,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,10 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.ecxp.DotnetRuntime
@@ -76,10 +62,9 @@ import com.pmcl.core.i18n.I18n
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.navigation.PmclIcons
 import com.pmcl.ui.theme.PmclCard
-import com.pmcl.ui.theme.glassCardColors
-import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.viewmodel.LauncherViewModel
 import com.pmcl.ui.widget.DangerConfirmDialog
+import com.pmcl.ui.widget.PmclLazyColumn
 import com.pmcl.ui.widget.SlideToConfirm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -155,120 +140,86 @@ fun EcxpPage(vm: LauncherViewModel) {
         I18n.t(if (fresh) "ecxp.opened" else "ecxp.focused", app.manifest.name)
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        PmclCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(colors.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(PmclIcons.Ecxp, contentDescription = null, tint = colors.onPrimaryContainer, modifier = Modifier.size(24.dp))
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("ECXP", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Button(
+                enabled = !busy,
+                onClick = { pickPackage(::inspect) },
+                shape = RectangleShape,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("ecxp.install"))
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                enabled = !busy,
+                onClick = {
+                    val chooser = JFileChooser()
+                    chooser.fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                    chooser.dialogTitle = I18n.t("ecxp.install_dir")
+                    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                        chooser.selectedFile?.toPath()?.let(::inspect)
                     }
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("ECXP", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            I18n.t("ecxp.subtitle"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                },
+                shape = RectangleShape,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(I18n.t("ecxp.install_dir"))
+            }
+            IconButton(onClick = {
+                runCatching {
+                    Files.createDirectories(manager.appsRoot())
+                    Desktop.getDesktop().open(manager.appsRoot().toFile())
                 }
-                Spacer(Modifier.height(14.dp))
-                FlowRow(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(enabled = !busy, onClick = { pickPackage(::inspect) }) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("ecxp.install"))
-                    }
-                    OutlinedButton(enabled = !busy, onClick = {
-                        val chooser = JFileChooser()
-                        chooser.fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                        chooser.dialogTitle = I18n.t("ecxp.install_dir")
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            chooser.selectedFile?.toPath()?.let(::inspect)
-                        }
-                    }) {
-                        Icon(Icons.Filled.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("ecxp.install_dir"))
-                    }
-                    IconButton(onClick = {
-                        runCatching {
-                            Files.createDirectories(manager.appsRoot())
-                            Desktop.getDesktop().open(manager.appsRoot().toFile())
-                        }
-                    }) {
-                        Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("ecxp.open_folder"))
-                    }
-                    IconButton(onClick = { work { manager.refreshRuntime(); null } }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                RuntimeLine(runtime, onDownload = {
-                    vm.enqueueEcxpDotnet(DOTNET_MAJOR)
-                    message = I18n.t("ecxp.dotnet_queued", DOTNET_MAJOR.toString())
-                })
+            }) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = I18n.t("ecxp.open_folder"))
+            }
+            IconButton(onClick = { work { manager.refreshRuntime(); null } }) {
+                Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
             }
         }
-
-        AnimatedVisibility(
-            visible = message != null,
-            enter = fadeIn(tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasizedDecelerate)) +
-                expandVertically(tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasizedDecelerate)),
-            exit = fadeOut(tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasizedAccelerate)) +
-                shrinkVertically(tween(MotionTokens.DURATION_SHORT, easing = MotionTokens.EasingEmphasizedAccelerate))
-        ) {
-            Text(
-                message.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.primary,
-                modifier = Modifier.padding(top = 10.dp)
-            )
+        Text(
+            I18n.t("ecxp.subtitle"),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.outline
+        )
+        Spacer(Modifier.height(8.dp))
+        RuntimeLine(runtime, onDownload = {
+            vm.enqueueEcxpDotnet(DOTNET_MAJOR)
+            message = I18n.t("ecxp.dotnet_queued", DOTNET_MAJOR.toString())
+        })
+        if (message != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(message.orEmpty(), style = MaterialTheme.typography.bodySmall, color = colors.primary)
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
 
         if (apps.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                PmclCard(Modifier.widthIn(max = 420.dp)) {
-                    Column(
-                        Modifier.padding(horizontal = 28.dp, vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(PmclIcons.Ecxp, contentDescription = null, tint = colors.primary, modifier = Modifier.size(36.dp))
-                        Spacer(Modifier.height(12.dp))
-                        Text(I18n.t("ecxp.empty"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            I18n.t("ecxp.empty_hint"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Button(enabled = !busy, onClick = { pickPackage(::inspect) }) {
-                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(I18n.t("ecxp.install"))
-                        }
-                    }
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(PmclIcons.Ecxp, contentDescription = null, modifier = Modifier.size(40.dp), tint = colors.outline)
+                    Spacer(Modifier.height(12.dp))
+                    Text(I18n.t("ecxp.empty"), style = MaterialTheme.typography.bodyMedium, color = colors.outline)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        I18n.t("ecxp.empty_hint"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.outline,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(260.dp),
+            PmclLazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 12.dp),
             ) {
                 items(apps, key = { it.manifest.id }) { app ->
                     AppCard(
@@ -345,16 +296,13 @@ private fun RuntimeLine(runtime: DotnetRuntime?, onDownload: () -> Unit) {
         runtime.versions().isEmpty() -> I18n.t("ecxp.runtime_none")
         else -> I18n.t("ecxp.runtime_found", runtime.versions().joinToString(", "))
     }
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(glassContainerColor(colors.surfaceVariant)).padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(6.dp).background(dot))
         Spacer(Modifier.width(8.dp))
         Text(
             text,
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.outline,
             modifier = Modifier.weight(1f)
         )
         if (missing) {
@@ -380,74 +328,57 @@ private fun AppCard(
     val m = app.manifest
     val colors = MaterialTheme.colorScheme
     val missingRuntime = m.needsDotnetHost() && runtime != null && !runtime.hasMajor(m.frameworkMajor())
-    val hover = remember { MutableInteractionSource() }
-    val hovered by hover.collectIsHoveredAsState()
     PmclCard(
-        modifier = modifier.fillMaxWidth().hoverable(hover),
+        modifier = modifier.fillMaxWidth(),
         onClick = { if (!busy) onOpen() },
-        colors = glassCardColors(containerColor = if (hovered) colors.surfaceVariant else colors.surface),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppIcon(app)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(m.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(m.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (app.running) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(I18n.t("ecxp.running"), style = MaterialTheme.typography.labelSmall, color = colors.primary)
+                        }
+                    }
                     Text(
                         listOf(m.version, ".NET " + m.frameworkMajor(), m.author).filter { it.isNotBlank() }.joinToString(" · "),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = colors.outline,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (app.running) {
-                    Row(
-                        Modifier.clip(RoundedCornerShape(8.dp)).background(colors.primary.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.size(6.dp).clip(CircleShape).background(colors.primary))
-                        Spacer(Modifier.width(6.dp))
-                        Text(I18n.t("ecxp.running"), style = MaterialTheme.typography.labelSmall, color = colors.primary)
-                    }
-                }
-            }
-            if (m.description.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(m.description, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            if (missingRuntime) {
-                Spacer(Modifier.height(6.dp))
-                TextButton(
-                    onClick = onGetRuntime,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.height(24.dp)
-                ) {
-                    Text(I18n.t("ecxp.needs_runtime", m.frameworkMajor().toString()), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalButton(
-                    enabled = !busy,
-                    onClick = onOpen,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(I18n.t(if (app.running) "ecxp.focus" else "ecxp.open"))
+                IconButton(enabled = !busy, onClick = onOpen) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = I18n.t(if (app.running) "ecxp.focus" else "ecxp.open"), modifier = Modifier.size(18.dp), tint = colors.primary)
                 }
                 if (app.running) {
                     IconButton(enabled = !busy, onClick = onStop) {
-                        Icon(Icons.Filled.Stop, contentDescription = I18n.t("ecxp.stop"), tint = colors.primary)
+                        Icon(Icons.Filled.Stop, contentDescription = I18n.t("ecxp.stop"), modifier = Modifier.size(18.dp), tint = colors.primary)
                     }
                 }
-                Spacer(Modifier.weight(1f))
                 IconButton(onClick = onLog) {
-                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = I18n.t("ecxp.log"), tint = colors.onSurfaceVariant)
+                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = I18n.t("ecxp.log"), modifier = Modifier.size(18.dp), tint = colors.onSurfaceVariant)
                 }
                 IconButton(enabled = !busy, onClick = onRemove) {
-                    Icon(Icons.Filled.Delete, contentDescription = I18n.t("ecxp.remove"), tint = colors.error)
+                    Icon(Icons.Filled.Delete, contentDescription = I18n.t("ecxp.remove"), modifier = Modifier.size(18.dp), tint = colors.error)
+                }
+            }
+            if (m.description.isNotBlank() || missingRuntime) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+            }
+            if (m.description.isNotBlank()) {
+                Text(m.description, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (missingRuntime) {
+                if (m.description.isNotBlank()) Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onGetRuntime, contentPadding = PaddingValues(0.dp)) {
+                    Text(I18n.t("ecxp.needs_runtime", m.frameworkMajor().toString()), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -458,8 +389,7 @@ private fun AppCard(
 private fun AppIcon(app: EcxpAppManager.Installed) {
     val colors = MaterialTheme.colorScheme
     val bitmap by produceIcon(app.icon)
-    val shape = RoundedCornerShape(12.dp)
-    Box(Modifier.size(48.dp).clip(shape).background(colors.secondaryContainer), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(40.dp).clip(RectangleShape).background(colors.surfaceVariant), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) {
             Image(image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -467,7 +397,7 @@ private fun AppIcon(app: EcxpAppManager.Installed) {
             Text(
                 app.manifest.name.take(1).uppercase(),
                 style = MaterialTheme.typography.titleMedium,
-                color = colors.onSecondaryContainer,
+                color = colors.onSurfaceVariant,
             )
         }
     }
@@ -508,24 +438,23 @@ private fun InstallDialog(manifest: EcxpManifest, onDismiss: () -> Unit, onConfi
                     Text(manifest.description, style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.height(12.dp))
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(glassContainerColor(colors.surfaceVariant)).padding(12.dp)
-                ) {
-                    Text(I18n.t("ecxp.permissions"), style = MaterialTheme.typography.labelLarge)
-                    Spacer(Modifier.height(4.dp))
-                    val perms = if (manifest.requestsAllPermissions()) {
-                        I18n.t("ecxp.permissions_all")
-                    } else {
-                        manifest.grantedPermissions().sorted().joinToString("、") { permissionLabel(it) }
-                    }
-                    Text(perms, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("ecxp.permissions"), style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                val perms = if (manifest.requestsAllPermissions()) {
+                    I18n.t("ecxp.permissions_all")
+                } else {
+                    manifest.grantedPermissions().sorted().joinToString("、") { permissionLabel(it) }
                 }
+                Text(perms, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 Text(I18n.t("ecxp.trust_hint"), style = MaterialTheme.typography.bodySmall, color = colors.error)
                 Spacer(Modifier.height(16.dp))
                 SlideToConfirm(
                     onConfirmed = onConfirm,
                     label = I18n.t("ecxp.slide_install"),
+                    square = true,
                     trackColor = colors.primaryContainer,
                     knobColor = colors.primary,
                     labelColor = colors.onPrimaryContainer,
