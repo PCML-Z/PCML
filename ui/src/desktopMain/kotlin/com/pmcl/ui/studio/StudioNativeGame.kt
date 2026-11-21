@@ -116,6 +116,7 @@ import com.pmcl.ui.viewmodel.serverStatusKey
 import com.pmcl.ui.viewmodel.setOfflineSkin
 import com.pmcl.ui.viewmodel.setTimeMachineNote
 import com.pmcl.ui.viewmodel.setTimeMachinePinned
+import com.pmcl.ui.viewmodel.certifyPmclDeveloper
 import com.pmcl.ui.viewmodel.startGitHubLogin
 import com.pmcl.ui.viewmodel.startMicrosoftLogin
 import com.pmcl.ui.viewmodel.startTimeMachineBackup
@@ -875,7 +876,12 @@ private fun AccountListSection(ctx: ModuleCtx) {
                 val on = a.uuid == current?.uuid
                 ItemRow(
                     a.username,
-                    listOfNotNull(accountTypeLabel(a.type), a.authServerUrl?.takeIf { it.isNotBlank() }, a.uuid).joinToString(" · "),
+                    listOfNotNull(
+                        accountTypeLabel(a.type),
+                        if (a.isPmclDeveloper) I18n.t("accounts.pmcl_developer_badge") else null,
+                        a.authServerUrl?.takeIf { it.isNotBlank() },
+                        a.uuid
+                    ).joinToString(" · "),
                     accountColor(a.type),
                     i,
                     icon = Icons.Filled.Person,
@@ -982,6 +988,10 @@ private fun DeviceLoginSection(ctx: ModuleCtx, github: Boolean) {
         ModuleHero(if (github) mt("github_title") else mt("ms_title"), if (github) mt("github_sub") else mt("ms_sub"), color, Icons.AutoMirrored.Filled.Login) {
             HeroButton(if (loggingIn) I18n.t("studio.loading") else mt("start_login"), Icons.AutoMirrored.Filled.Login, color,
                 { if (github) vm.startGitHubLogin() else if (vm.isMicrosoftConsentAccepted()) vm.startMicrosoftLogin() else showConsent = true }, enabled = !loggingIn)
+            if (github) {
+                HeroButton(I18n.t("accounts.pmcl_developer"), Icons.Filled.Check, color,
+                    { vm.certifyPmclDeveloper() }, enabled = !loggingIn)
+            }
         }
         val c = code
         if (!github && c != null) {
@@ -994,6 +1004,10 @@ private fun DeviceLoginSection(ctx: ModuleCtx, github: Boolean) {
         }
         if (loggingIn) ProgressLine(null, color)
         FlatText(if (github) mt("github_hint") else mt("ms_hint"), color = p.muted, size = 12, lines = 6, modifier = Modifier.padding(20.dp))
+        if (github) {
+            FlatText(I18n.t("accounts.pmcl_developer_hint"), color = p.muted, size = 12, lines = 4,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        }
     }
 }
 

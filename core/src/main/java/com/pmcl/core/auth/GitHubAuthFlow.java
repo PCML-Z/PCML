@@ -261,7 +261,23 @@ public final class GitHubAuthFlow {
         String avatarUrl = safeStr(o, "avatar_url");
         String uuid = UUID.nameUUIDFromBytes(
                 ("GitHub:" + githubId).getBytes(StandardCharsets.UTF_8)).toString();
-        return new Account(login, uuid, accessToken, Account.AccountType.GITHUB, avatarUrl, "classic");
+        Account account = new Account(login, uuid, accessToken, Account.AccountType.GITHUB, avatarUrl, "classic");
+        boolean certified = false;
+        try {
+            certified = PmclDeveloperCertification.certify(http, login, accessToken);
+        } catch (IOException ignored) {
+            certified = false;
+        }
+        return account.withPmclDeveloper(certified);
+    }
+
+    /** 用已登录的 GitHub 账号再验一次开发者仓库标签。 */
+    public Account certifyDeveloper(Account account) throws IOException {
+        if (account == null || account.getType() != Account.AccountType.GITHUB) {
+            throw new IOException("not-github");
+        }
+        boolean certified = PmclDeveloperCertification.certify(http, account.getUsername(), account.getAccessToken());
+        return account.withPmclDeveloper(certified);
     }
 
     private static String safeStr(JsonObject o, String key) {

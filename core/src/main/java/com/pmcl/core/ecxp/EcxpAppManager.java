@@ -59,6 +59,7 @@ public final class EcxpAppManager {
 
     public DotnetRuntime refreshRuntime() {
         runtime = DotnetRuntime.probe();
+        fire();
         return runtime;
     }
 

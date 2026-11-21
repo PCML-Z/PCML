@@ -233,6 +233,13 @@ public final class AuthService {
                 });
     }
 
+    /**
+     * 用当前 GitHub 账号核对公开仓库主题。网络失败时抛出，不改账号。
+     */
+    public Account certifyGitHubDeveloper(Account account) throws IOException {
+        return githubFlow.certifyDeveloper(account);
+    }
+
     // ============ 皮肤站（Yggdrasil / authlib-injector）登录 ============
 
     /**
@@ -376,7 +383,8 @@ public final class AuthService {
                             expiresAt,
                             o.has("clientToken") && !o.get("clientToken").isJsonNull()
                                     ? o.get("clientToken").getAsString() : ""
-                    ));
+                    ).withPmclDeveloper(o.has("pmclDeveloper") && !o.get("pmclDeveloper").isJsonNull()
+                            && o.get("pmclDeveloper").getAsBoolean()));
                 }
             }
             String selected = root.has("selected") && !root.get("selected").isJsonNull()
@@ -426,6 +434,9 @@ public final class AuthService {
                 }
                 if (a.getExpiresAt() > 0) {
                     o.addProperty("expiresAt", a.getExpiresAt());
+                }
+                if (a.isPmclDeveloper()) {
+                    o.addProperty("pmclDeveloper", true);
                 }
                 arr.add(o);
             }

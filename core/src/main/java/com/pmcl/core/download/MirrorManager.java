@@ -121,6 +121,8 @@ public final class MirrorManager {
      */
     public String rewrite(String url) {
         if (url == null || url.isEmpty()) return url;
+        // Minecraft 镜像没有 .NET 运行时，改写后安装包会下到错误的站点。
+        if ("builds.dotnet.microsoft.com".equalsIgnoreCase(extractHost(url))) return url;
         if (type == MirrorType.OFFICIAL) return url;
 
         if (type == MirrorType.BMCLAPI) {

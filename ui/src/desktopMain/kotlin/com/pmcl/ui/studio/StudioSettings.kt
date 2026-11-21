@@ -327,6 +327,14 @@ private fun buildCategories(vm: LauncherViewModel, theme: ThemeState, recommende
         SettingItem.Toggle(t("settings.glass_theme"), t("settings.glass_theme_desc"), get = { pref.isGlassTheme() }, set = { vm.setGlassTheme(it) }),
         SettingItem.Toggle(t("settings.material_theme"), t("settings.material_theme_desc"), get = { pref.isMaterialTheme() }, set = { vm.setMaterialTheme(it) }),
         SettingItem.Toggle(t("settings.live_wallpaper_glass"), t("settings.live_wallpaper_glass_desc"), get = { pref.isLiveWallpaperGlass() }, set = { vm.setLiveWallpaperGlass(it) }),
+        SettingItem.Slider(
+            t("settings.glass_blur"), t("settings.glass_blur_desc"),
+            get = { pref.getGlassBlur().toFloat() },
+            set = { vm.setGlassBlur(it.toInt()) },
+            range = 0f..48f,
+            steps = 47,
+            format = { it.toInt().toString() }
+        ),
         SettingItem.Toggle(t("settings.lockscreen_launch"), t("settings.lockscreen_launch_desc"), get = { pref.isLockscreenLaunchTheme() }, set = { vm.setLockscreenLaunchTheme(it) }),
         SettingItem.Toggle(t("settings.parallax_background"), t("settings.parallax_background_desc"), get = { pref.isParallaxBackground() }, set = { vm.setParallaxBackground(it) }),
         SettingItem.Choice(
@@ -420,6 +428,12 @@ private fun buildCategories(vm: LauncherViewModel, theme: ThemeState, recommende
             t("settings.launcher_log_level"), t("settings.launcher_log_level_desc"),
             options = listOf("DEBUG", "INFO", "WARN", "ERROR", "OFF").map { it to t("settings.log_level_" + it.lowercase(Locale.ROOT)) },
             get = { pref.getLauncherLogLevel() }, set = { pref.setLauncherLogLevel(it) }
+        ))
+        add(SettingItem.Toggle(
+            t("settings.show_launcher_log_window"), t("settings.show_launcher_log_window_desc"),
+            get = { pref.isShowLauncherLogWindow() },
+            set = { vm.setLauncherLogWindow(it) },
+            visible = { vm.account.value?.isPmclDeveloper == true }
         ))
         add(SettingItem.Toggle(t("settings.fast_resource_check"), t("settings.fast_resource_check_desc"), get = { pref.isFastResourceCheck() }, set = { pref.setFastResourceCheck(it) }))
         add(SettingItem.Number(t("settings.resource_check_parallel"), t("settings.resource_check_parallel_desc"),
@@ -533,7 +547,9 @@ internal fun SettingsEditor(
         value = withContext(Dispatchers.IO) { runCatching { vm.core.runtime().getRecommendedMaxMemoryMb() }.getOrDefault(0L) }
     }
     val latestRecommended by rememberUpdatedState(recommended)
-    val categories = remember(vm, themeState) { buildCategories(vm, themeState) { latestRecommended } }
+    val account by vm.account.collectAsState()
+    val developer = account?.isPmclDeveloper == true
+    val categories = remember(vm, themeState, developer) { buildCategories(vm, themeState) { latestRecommended } }
     var tick by remember { mutableIntStateOf(0) }
     val bump: () -> Unit = { tick++ }
     var query by remember { mutableStateOf("") }

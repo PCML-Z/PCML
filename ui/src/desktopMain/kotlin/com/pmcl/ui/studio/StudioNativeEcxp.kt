@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
@@ -132,13 +133,20 @@ internal fun EcxpModule(ctx: ModuleCtx) {
         TileRow(72.dp) {
             ColorTile(I18n.t("ecxp.tile_installed"), apps.size.toString(), ctx.color, Modifier.weight(1f).fillMaxHeight(), PmclIcons.Ecxp, index = 0)
             ColorTile(I18n.t("ecxp.running"), running.toString(), if (running > 0) Tiles.Navy else Tiles.Slate, Modifier.weight(1f).fillMaxHeight(), index = 1)
+            val dotnet = runtime
             ColorTile(
                 ".NET",
-                runtime?.versions()?.map { it.substringBefore('.') }?.distinct()?.joinToString(" · ")?.ifEmpty { "—" } ?: "…",
-                if (runtime?.hasMajor(11) == true) Tiles.Teal else Tiles.Slate,
+                dotnet?.versions()?.map { it.substringBefore('.') }?.distinct()?.joinToString(" · ")?.ifEmpty { "—" } ?: "…",
+                if (dotnet?.hasMajor(11) == true) Tiles.Teal else Tiles.Slate,
                 Modifier.weight(1f).fillMaxHeight(),
                 index = 2,
-                onClick = { browse("https://dotnet.microsoft.com/download") },
+                onClick = if (dotnet != null && !dotnet.hasMajor(11)) {
+                    {
+                        ctx.vm.enqueueEcxpDotnet(11)
+                        failed = false
+                        message = I18n.t("ecxp.dotnet_queued", "11")
+                    }
+                } else null,
             )
             ColorTile(I18n.t("ecxp.open_folder"), "", Tiles.Graphite, Modifier.weight(1f).fillMaxHeight(), Icons.Filled.FolderOpen, {
                 runCatching {
@@ -177,6 +185,13 @@ internal fun EcxpModule(ctx: ModuleCtx) {
                         height = 56.dp,
                         onClick = open,
                     ) {
+                        if (missing) {
+                            RowButton(Icons.Filled.Download, {
+                                ctx.vm.enqueueEcxpDotnet(m.frameworkMajor())
+                                failed = false
+                                message = I18n.t("ecxp.dotnet_queued", m.frameworkMajor().toString())
+                            }, label = I18n.t("ecxp.get_dotnet"))
+                        }
                         if (app.running) {
                             FlatText(
                                 I18n.t("ecxp.running"),

@@ -50,6 +50,7 @@ import com.pmcl.ui.viewmodel.removeAccount
 import com.pmcl.ui.viewmodel.resetMicrosoftSkin
 import com.pmcl.ui.viewmodel.resetYggdrasilSkin
 import com.pmcl.ui.viewmodel.setOfflineSkin
+import com.pmcl.ui.viewmodel.certifyPmclDeveloper
 import com.pmcl.ui.viewmodel.startGitHubLogin
 import com.pmcl.ui.viewmodel.requestMicrosoftLogin
 import com.pmcl.ui.viewmodel.switchAccount
@@ -384,12 +385,21 @@ fun AccountsPage(vm: LauncherViewModel, sectionId: String = "list") {
                         }
                     }
                 } else {
-                    Button(onClick = {
-                        loginMode = "github"
-                        vm.startGitHubLogin()
-                    }, enabled = !loggingIn) {
-                        Text(if (loggingIn) I18n.t("accounts.logging_in") else I18n.t("accounts.github"))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = {
+                            loginMode = "github"
+                            vm.startGitHubLogin()
+                        }, enabled = !loggingIn) {
+                            Text(if (loggingIn) I18n.t("accounts.logging_in") else I18n.t("accounts.github"))
+                        }
+                        OutlinedButton(onClick = { vm.certifyPmclDeveloper() }, enabled = !loggingIn) {
+                            Text(I18n.t("accounts.pmcl_developer"))
+                        }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(I18n.t("accounts.pmcl_developer_hint"),
+                         style = MaterialTheme.typography.bodySmall,
+                         color = MaterialTheme.colorScheme.outline)
                 }
             }
         }
@@ -626,8 +636,16 @@ private fun AccountRow(
             Column(Modifier.weight(1f)) {
                 Text(acc.getUsername(), fontWeight = FontWeight.SemiBold, maxLines = 1,
                      overflow = TextOverflow.Ellipsis)
-                Text(acc.getType().name, style = MaterialTheme.typography.labelSmall,
-                     color = MaterialTheme.colorScheme.outline)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(acc.getType().name, style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    if (acc.isPmclDeveloper()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(I18n.t("accounts.pmcl_developer_badge"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.primary)
+                    }
+                }
             }
             // 选中标记
             if (isSelected) {

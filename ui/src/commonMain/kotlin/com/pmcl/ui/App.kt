@@ -122,6 +122,7 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
         themeState.applyGlassTheme(vm.preferences.isGlassTheme())
         themeState.applyMaterialTheme(vm.preferences.isMaterialTheme())
         themeState.applyLiveWallpaperGlass(vm.preferences.isLiveWallpaperGlass())
+        themeState.applyGlassBlur(vm.preferences.getGlassBlur())
         themeState.applyFieldGeometry(vm.preferences.getFieldGeometry())
         themeState.applyFieldLineStyle(vm.preferences.getFieldLineStyle())
         themeState.applyAlwaysShowScrollbars(vm.preferences.isAlwaysShowScrollbars())

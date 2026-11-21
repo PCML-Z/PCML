@@ -52,6 +52,8 @@ public final class Preferences {
     private boolean materialTheme = true;
     /** 发行默认：实时壁纸毛玻璃开着。和材质主题分开。 */
     private boolean liveWallpaperGlass = true;
+    /** 背景毛玻璃虚化半径，单位 dp。0 是不虚化。 */
+    private int glassBlur = 22;
     private boolean lockscreenLaunchTheme = false; // 锁屏启动页主题：Origin OS2 风格方形卡片启动页
     /** 材质角落图形：LINES/CIRCLES/TRIANGLES/DIAMONDS/GRID/ARCS/CROSS */
     private String fieldGeometry = "LINES";
@@ -133,6 +135,8 @@ public final class Preferences {
     private String launcherAfterGame = "KEEP"; // KEEP / MINIMIZE / HIDE / CLOSE
     private int resourceCheckParallelism = 16;
     private boolean showGameOutput = true;
+    /** 认证开发者打开的 PMCL 终端日志窗口。默认关。 */
+    private boolean showLauncherLogWindow = false;
     private String launcherLogLevel = "DEBUG"; // DEBUG / INFO / WARN / ERROR / OFF
     private String windowIconPath = "";      // 自定义游戏窗口图标 PNG 路径（注入到 <gameDir>/icons/）
     private String launcherIconStyle = "modern"; // modern：简洁一套；classic：原来的一套
@@ -327,6 +331,14 @@ public final class Preferences {
     public synchronized void setMaterialTheme(boolean v) { materialTheme = v; scheduleSave(); }
     public synchronized boolean isLiveWallpaperGlass() { return liveWallpaperGlass; }
     public synchronized void setLiveWallpaperGlass(boolean v) { liveWallpaperGlass = v; scheduleSave(); }
+
+    public synchronized int getGlassBlur() { return glassBlur; }
+    public synchronized void setGlassBlur(int v) {
+        int next = Math.max(0, Math.min(48, v));
+        if (next == glassBlur) return;
+        glassBlur = next;
+        scheduleSave();
+    }
 
     public synchronized String getFieldGeometry() { return fieldGeometry; }
     public synchronized void setFieldGeometry(String v) {
@@ -866,6 +878,12 @@ public final class Preferences {
     public synchronized boolean isShowGameOutput() { return showGameOutput; }
     public synchronized void setShowGameOutput(boolean v) { showGameOutput = v; scheduleSave(); }
 
+    public synchronized boolean isShowLauncherLogWindow() { return showLauncherLogWindow; }
+    public synchronized void setShowLauncherLogWindow(boolean v) {
+        showLauncherLogWindow = v;
+        scheduleSave();
+    }
+
     public synchronized String getLauncherLogLevel() { return launcherLogLevel; }
     public synchronized void setLauncherLogLevel(String v) {
         if (v == null) v = "DEBUG";
@@ -1327,6 +1345,7 @@ public final class Preferences {
             glassTheme = loadBool(o, "glassTheme", true);
             materialTheme = loadBool(o, "materialTheme", true);
             liveWallpaperGlass = loadBool(o, "liveWallpaperGlass", true);
+            glassBlur = loadInt(o, "glassBlur", 22, 0, 48);
             fieldGeometry = allowed(loadString(o, "fieldGeometry", "LINES"),
                     "LINES", "CIRCLES", "TRIANGLES", "DIAMONDS", "GRID", "ARCS", "CROSS");
             fieldLineStyle = allowed(loadString(o, "fieldLineStyle", "SOLID"),
@@ -1454,6 +1473,7 @@ public final class Preferences {
             }
             resourceCheckParallelism = loadInt(o, "resourceCheckParallelism", 16, 1, 64);
             showGameOutput = loadBool(o, "showGameOutput", true);
+            showLauncherLogWindow = loadBool(o, "showLauncherLogWindow", false);
             launcherLogLevel = loadString(o, "launcherLogLevel", "DEBUG");
             if (!"INFO".equals(launcherLogLevel) && !"WARN".equals(launcherLogLevel)
                     && !"ERROR".equals(launcherLogLevel) && !"OFF".equals(launcherLogLevel)) {
@@ -1806,6 +1826,7 @@ public final class Preferences {
         o.addProperty("glassTheme", glassTheme);
         o.addProperty("materialTheme", materialTheme);
         o.addProperty("liveWallpaperGlass", liveWallpaperGlass);
+        o.addProperty("glassBlur", glassBlur);
         o.addProperty("fieldGeometry", fieldGeometry);
         o.addProperty("fieldLineStyle", fieldLineStyle);
         o.addProperty("lockscreenLaunchTheme", lockscreenLaunchTheme);
@@ -1898,6 +1919,7 @@ public final class Preferences {
         o.addProperty("launcherAfterGame", launcherAfterGame);
         o.addProperty("resourceCheckParallelism", resourceCheckParallelism);
         o.addProperty("showGameOutput", showGameOutput);
+        o.addProperty("showLauncherLogWindow", showLauncherLogWindow);
         o.addProperty("launcherLogLevel", launcherLogLevel);
         o.addProperty("windowIconPath", windowIconPath);
         o.addProperty("launcherIconStyle", launcherIconStyle);

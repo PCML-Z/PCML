@@ -1044,6 +1044,16 @@ class LauncherViewModel {
         themeState?.applyLiveWallpaperGlass(v)
     }
 
+    private val _glassBlur = MutableStateFlow(preferences.getGlassBlur())
+    val glassBlur: StateFlow<Int> = _glassBlur.asStateFlow()
+
+    fun setGlassBlur(v: Int) {
+        preferences.setGlassBlur(v)
+        val next = preferences.getGlassBlur()
+        _glassBlur.value = next
+        themeState?.applyGlassBlur(next)
+    }
+
     private val _fieldGeometry = MutableStateFlow(preferences.getFieldGeometry())
     val fieldGeometry: StateFlow<String> = _fieldGeometry.asStateFlow()
 
@@ -1425,6 +1435,19 @@ class LauncherViewModel {
 
     private val _openGameLog = MutableStateFlow(false)
     val openGameLog: StateFlow<Boolean> = _openGameLog.asStateFlow()
+
+    private val _launcherLogWindow = MutableStateFlow(preferences.isShowLauncherLogWindow())
+    val launcherLogWindow: StateFlow<Boolean> = _launcherLogWindow.asStateFlow()
+
+    /** 只有当前账号已通过 PMCL 开发者认证时才能打开。关掉会记住。 */
+    fun setLauncherLogWindow(visible: Boolean) {
+        if (visible && _account.value?.isPmclDeveloper != true) {
+            _launcherLogWindow.value = false
+            return
+        }
+        preferences.setShowLauncherLogWindow(visible)
+        _launcherLogWindow.value = visible
+    }
 
     fun consumeWindowAction() { _windowAction.value = LauncherWindowAction.NONE }
     fun consumeOpenGameLog() { _openGameLog.value = false }
@@ -2875,6 +2898,14 @@ class LauncherViewModel {
     /** 刷新队列状态 */
     fun refreshQueue() {
         publishQueue(core.downloadQueue().tasks)
+    }
+
+    /** 把 ECXP 需要的 .NET 运行时放进下载队列。装完后重新探测本机运行时。 */
+    fun enqueueEcxpDotnet(major: Int) {
+        initDownloadQueue()
+        core.downloadQueue().submitDotnetRuntime(major) {
+            core.ecxp().refreshRuntime()
+        }
     }
 
     private fun publishQueue(tasks: List<DownloadQueueManager.QueueTask>) {

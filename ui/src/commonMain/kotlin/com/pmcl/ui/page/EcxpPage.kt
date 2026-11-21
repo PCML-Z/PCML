@@ -87,13 +87,12 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
-import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import javax.swing.JFileChooser
 
-private const val DOTNET_DOWNLOAD = "https://dotnet.microsoft.com/download"
+private const val DOTNET_MAJOR = 11
 
 /** ECXP：装在 PMCL 里的 .NET 应用。点一下应用，它在自己的窗口里打开。 */
 @Composable
@@ -214,7 +213,10 @@ fun EcxpPage(vm: LauncherViewModel) {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                RuntimeLine(runtime)
+                RuntimeLine(runtime, onDownload = {
+                    vm.enqueueEcxpDotnet(DOTNET_MAJOR)
+                    message = I18n.t("ecxp.dotnet_queued", DOTNET_MAJOR.toString())
+                })
             }
         }
 
@@ -278,6 +280,10 @@ fun EcxpPage(vm: LauncherViewModel) {
                             placementSpec = tween(MotionTokens.DURATION_MEDIUM, easing = MotionTokens.EasingEmphasized)
                         ),
                         onOpen = { open(app) },
+                        onGetRuntime = {
+                            vm.enqueueEcxpDotnet(app.manifest.frameworkMajor())
+                            message = I18n.t("ecxp.dotnet_queued", app.manifest.frameworkMajor().toString())
+                        },
                         onStop = { work { manager.stop(app.manifest.id); I18n.t("ecxp.stopped", app.manifest.name) } },
                         onLog = {
                             runCatching {
@@ -324,7 +330,7 @@ fun EcxpPage(vm: LauncherViewModel) {
 }
 
 @Composable
-private fun RuntimeLine(runtime: DotnetRuntime?) {
+private fun RuntimeLine(runtime: DotnetRuntime?, onDownload: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val ready = runtime != null && runtime.found() && runtime.versions().isNotEmpty() && runtime.hasMajor(11)
     val missing = runtime != null && (!runtime.found() || !runtime.hasMajor(11))
@@ -352,7 +358,7 @@ private fun RuntimeLine(runtime: DotnetRuntime?) {
             modifier = Modifier.weight(1f)
         )
         if (missing) {
-            TextButton(onClick = { runCatching { Desktop.getDesktop().browse(URI(DOTNET_DOWNLOAD)) } }) {
+            TextButton(onClick = onDownload) {
                 Text(I18n.t("ecxp.get_dotnet"))
             }
         }
@@ -365,6 +371,7 @@ private fun AppCard(
     runtime: DotnetRuntime?,
     busy: Boolean,
     onOpen: () -> Unit,
+    onGetRuntime: () -> Unit,
     onStop: () -> Unit,
     onLog: () -> Unit,
     onRemove: () -> Unit,
@@ -411,7 +418,13 @@ private fun AppCard(
             }
             if (missingRuntime) {
                 Spacer(Modifier.height(6.dp))
-                Text(I18n.t("ecxp.needs_runtime", m.frameworkMajor().toString()), style = MaterialTheme.typography.labelSmall, color = colors.tertiary)
+                TextButton(
+                    onClick = onGetRuntime,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.height(24.dp)
+                ) {
+                    Text(I18n.t("ecxp.needs_runtime", m.frameworkMajor().toString()), style = MaterialTheme.typography.labelSmall)
+                }
             }
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

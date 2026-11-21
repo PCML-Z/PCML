@@ -58,12 +58,13 @@ fun CustomBackground(
     useDark: Boolean,
     modifier: Modifier = Modifier,
     scrimAlpha: Float = 0.45f,
-    frameBlur: Boolean = false
+    frameBlur: Boolean = false,
+    blurRadius: androidx.compose.ui.unit.Dp = 22.dp
 ) {
     Box(modifier.fillMaxSize()) {
         when (type) {
             "image" -> ImageBackgroundLayer(imagePath)
-            "video" -> VideoBackgroundLayer(videoPath, frameBlur)
+            "video" -> VideoBackgroundLayer(videoPath, frameBlur, blurRadius)
         }
         // 遮罩：默认约 45%。材质主题的霜面在更上面，这里把遮罩放轻，让画面能透出来。
         val scrimColor = if (useDark) Color(0xFF0D1117).copy(alpha = scrimAlpha)
@@ -110,7 +111,7 @@ private const val MAX_DECODE_WIDTH = 1600
  * - 播放到结尾自动 seek 回开头循环；组件销毁时协程取消并释放解码器
  */
 @Composable
-private fun VideoBackgroundLayer(path: String, frameBlur: Boolean) {
+private fun VideoBackgroundLayer(path: String, frameBlur: Boolean, blurRadius: androidx.compose.ui.unit.Dp) {
     // 当前前台帧位图（首帧建立后仅在 draw 阶段读取；组合阶段不读，避免每帧重组）
     val frontFrame = remember(path) { mutableStateOf<ImageBitmap?>(null) }
 
@@ -208,16 +209,16 @@ private fun VideoBackgroundLayer(path: String, frameBlur: Boolean) {
     }
 
     val density = LocalDensity.current
-    val blurPx = with(density) { 22.dp.toPx() }
+    val blurPx = with(density) { blurRadius.toPx() }
     val blurPaint = remember(frameBlur, blurPx) {
-        if (!frameBlur) null
+        if (!frameBlur || blurPx <= 0f) null
         else Paint().apply {
             imageFilter = ImageFilter.makeBlur(blurPx, blurPx, FilterTileMode.CLAMP)
         }
     }
 
     // Canvas 无条件组合（视频加载失败时保持透明）；帧状态在 draw 阶段读取。
-    // 玻璃背景的 Modifier.blur 只吃重组，接不住这里的逐帧重绘，所以玻璃开着时在这一帧上直接做同样的 22.dp 模糊。
+    // 玻璃背景的 Modifier.blur 只吃重组，接不住这里的逐帧重绘，所以玻璃开着时在这一帧上直接按同样的半径模糊。
     Canvas(Modifier.fillMaxSize()) {
         val bmp = frontFrame.value ?: return@Canvas
         val srcW = bmp.width.toFloat()

@@ -64,6 +64,10 @@ class ThemeState(initialDark: Boolean = false) {
     var liveWallpaperGlass by mutableStateOf(true)
         private set
 
+    /** 背景毛玻璃虚化半径，单位 dp。0 是不虚化。 */
+    var glassBlur by mutableStateOf(22)
+        private set
+
     /** 材质角落图形。 */
     var fieldGeometry by mutableStateOf("LINES")
         private set
@@ -157,6 +161,10 @@ class ThemeState(initialDark: Boolean = false) {
 
     fun applyLiveWallpaperGlass(enabled: Boolean) {
         liveWallpaperGlass = enabled
+    }
+
+    fun applyGlassBlur(dp: Int) {
+        glassBlur = dp.coerceIn(0, 48)
     }
 
     fun applyFieldGeometry(value: String) {

@@ -364,7 +364,32 @@ fun LauncherViewModel.startMicrosoftLogin() {
     }
 }
 
-/** GitHub 设备码登录 */
+/** 用当前选中的 GitHub 账号核对 pmcl-plugin / ecxp-app 仓库标签。 */
+fun LauncherViewModel.certifyPmclDeveloper() {
+    val current = _account.value
+    if (current == null || current.getType() != Account.AccountType.GITHUB) {
+        _status.value = I18n.t("status.pmcl_developer_need_github")
+        return
+    }
+    scope.launch {
+        _status.value = I18n.t("status.pmcl_developer_checking")
+        try {
+            val updated = withContext(Dispatchers.IO) { core.auth().certifyGitHubDeveloper(current) }
+            if (_account.value?.getUuid() == updated.getUuid()) _account.value = updated
+            upsertAccount(updated)
+            _status.value = if (updated.isPmclDeveloper())
+                I18n.t("status.pmcl_developer_certified", updated.getUsername())
+            else
+                I18n.t("status.pmcl_developer_rejected", updated.getUsername())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            _status.value = I18n.t("status.pmcl_developer_failed")
+        }
+    }
+}
+
+/** GitHub 设备码登录。登录成功后会顺带核对开发者仓库标签。 */
 fun LauncherViewModel.startGitHubLogin() {
     scope.launch {
         _loggingIn.value = true
@@ -386,7 +411,10 @@ fun LauncherViewModel.startGitHubLogin() {
             }
             _account.value = account
             upsertAccount(account)
-            _status.value = I18n.t("status.logged_in_github", account.getUsername())
+            _status.value = if (account.isPmclDeveloper())
+                I18n.t("status.pmcl_developer_certified", account.getUsername())
+            else
+                I18n.t("status.logged_in_github", account.getUsername())
             _deviceCode.value = null
         } catch (e: kotlinx.coroutines.CancellationException) {
             _deviceCode.value = null

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.pmcl.ui.theme.LocalThemeState
 
 /** Material3 NavigationRail 默认宽度 */
 val PrimaryNavRailWidth = 80.dp
@@ -71,11 +72,12 @@ fun AnimatedNavSidebar(
     ) {
         // 模糊层始终按二级最大宽度绘制，由外层裁剪；避免宽度动画时每帧重跑 blur
         if (glassBlur) {
+            val blurRadius = LocalThemeState.current.glassBlur.coerceIn(0, 48).dp
             Box(
                 Modifier
                     .width(secondaryWidth)
                     .fillMaxHeight()
-                    .blur(12.dp)
+                    .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
             )
         }

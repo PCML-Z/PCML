@@ -23,6 +23,7 @@ public final class LauncherLogCollector {
     private static final int MAX_LINE_BYTES = 8 * 1024;
     private static final ArrayDeque<String> LINES = new ArrayDeque<>(MAX_LINES);
     private static final Object LOCK = new Object();
+    private static int revision = 0;
     private static volatile boolean installed = false;
     /** 低于此等级的行只打到控制台，不进环形缓冲。0=DEBUG … 4=OFF。 */
     private static volatile int minLevel = 0;
@@ -64,6 +65,20 @@ public final class LauncherLogCollector {
     public static int lineCount() {
         synchronized (LOCK) {
             return LINES.size();
+        }
+    }
+
+    /** 每收进一行加一。窗口用它判断要不要刷新。 */
+    public static int revision() {
+        synchronized (LOCK) {
+            return revision;
+        }
+    }
+
+    /** 当前缓冲的副本。 */
+    public static java.util.List<String> snapshot() {
+        synchronized (LOCK) {
+            return java.util.List.copyOf(LINES);
         }
     }
 
@@ -123,6 +138,7 @@ public final class LauncherLogCollector {
                 while (LINES.size() > MAX_LINES) {
                     LINES.removeFirst();
                 }
+                revision++;
             }
         }
     }

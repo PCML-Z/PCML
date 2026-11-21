@@ -202,6 +202,7 @@ fun main() = application {
         }
     }
 
+    val windowTitle = remember { pmclWindowTitle() }
     val state = rememberWindowState(
         width = 1100.dp,
         height = 700.dp,
@@ -264,7 +265,7 @@ fun main() = application {
             }
             exitApplication()
         },
-        title = "PMCL",
+        title = windowTitle,
         icon = pmclWindowIcon(),
         state = state,
         undecorated = borderless,
@@ -476,6 +477,7 @@ fun main() = application {
                     }
                     Column(Modifier.fillMaxSize()) {
                         BorderlessTitleBar(
+                            title = windowTitle,
                             onClose = ::exitApplication,
                             isDragging = isDragging,
                             vm = vm,
@@ -584,6 +586,12 @@ fun main() = application {
         }
     }
 
+    val account by vm.account.collectAsState()
+    val launcherLogWindow by vm.launcherLogWindow.collectAsState()
+    if (account?.isPmclDeveloper == true && launcherLogWindow) {
+        com.pmcl.ui.page.LauncherLogWindow(onClose = { vm.setLauncherLogWindow(false) })
+    }
+
     val kernelLaunchRequest by vm.kernelLaunchRequest.collectAsState()
     kernelLaunchRequest?.let { request ->
         com.pmcl.ui.page.KernelChoiceWindow(vm, request, sharedThemeState)
@@ -624,12 +632,20 @@ private fun readDarkThemePref(path: String): Boolean {
     } catch (_: Throwable) { false }
 }
 
+private fun pmclWindowTitle(): String {
+    val info = com.pmcl.core.LauncherBuildInfo.load()
+    val version = info.binaryVersion()
+    val base = if (version.isBlank()) "PMCL" else "PMCL $version"
+    return if (info.channel() == "release") base else "$base (非发行版本)"
+}
+
 /**
  * 无边框窗口自定义标题栏：可拖拽 + 搜索框 + 最小化/最大化/关闭按钮。
  * 玻璃主题开启时分层渲染：底层模糊背景 + 上层透明 Surface 清晰内容。
  */
 @Composable
 private fun FrameWindowScope.BorderlessTitleBar(
+    title: String,
     onClose: () -> Unit,
     isDragging: MutableState<Boolean>,
     vm: LauncherViewModel,
@@ -641,11 +657,11 @@ private fun FrameWindowScope.BorderlessTitleBar(
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
         if (glassOn) {
-            // 模糊背景层：独立节点被 blur，渲染毛玻璃质感
+            val blurRadius = LocalThemeState.current.glassBlur.coerceIn(0, 48).dp
             Box(
                 Modifier
                     .matchParentSize()
-                    .blur(24.dp)
+                    .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
             )
         }
@@ -660,7 +676,7 @@ private fun FrameWindowScope.BorderlessTitleBar(
             ) {
             // 标题（可拖拽区域；fillMaxHeight 扩大命中条带）
             Text(
-                "PMCL",
+                title,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -735,10 +751,11 @@ private fun SlimSearchBar(
 ) {
     Box(Modifier.fillMaxWidth().height(38.dp)) {
         if (glassOn) {
+            val blurRadius = LocalThemeState.current.glassBlur.coerceIn(0, 48).dp
             Box(
                 Modifier
                     .matchParentSize()
-                    .blur(24.dp)
+                    .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
             )
         }

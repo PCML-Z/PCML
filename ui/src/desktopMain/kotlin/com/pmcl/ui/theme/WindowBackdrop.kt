@@ -24,6 +24,7 @@ fun WindowBackdrop(
     modifier: Modifier = Modifier
 ) {
     val useDark = themeState.useDark
+    val blurRadius = themeState.glassBlur.coerceIn(0, 48).dp
     val customOn = (customType == "image" && customImage.isNotBlank()) ||
         (customType == "video" && customVideo.isNotBlank())
     val videoOn = customType == "video" && customVideo.isNotBlank()
@@ -33,7 +34,8 @@ fun WindowBackdrop(
         LiveWallpaperGlass(
             modifier = Modifier.fillMaxSize().then(modifier),
             useDark = useDark,
-            blurWallpaper = !videoOn
+            blurWallpaper = !videoOn,
+            blurRadius = blurRadius
         ) {
             if (customOn) {
                 CustomBackground(
@@ -42,7 +44,8 @@ fun WindowBackdrop(
                     videoPath = customVideo,
                     useDark = useDark,
                     scrimAlpha = if (videoOn) 0f else 0.06f,
-                    frameBlur = videoOn
+                    frameBlur = videoOn,
+                    blurRadius = blurRadius
                 )
             } else {
                 ParallaxBackground(useDark = useDark, scrim = false)
@@ -50,7 +53,7 @@ fun WindowBackdrop(
         }
     } else {
         // 材质主题：先模糊壁纸，再盖一层透出颜色的薄霜；视频逐帧模糊，不再叠 Modifier.blur
-        val painted = if (materialOn && !videoOn) modifier.blur(22.dp) else modifier
+        val painted = if (materialOn && !videoOn && blurRadius > 0.dp) modifier.blur(blurRadius) else modifier
         if (customOn) {
             CustomBackground(
                 type = customType,
@@ -59,7 +62,8 @@ fun WindowBackdrop(
                 useDark = useDark,
                 modifier = painted,
                 scrimAlpha = if (materialOn) 0.06f else 0.45f,
-                frameBlur = materialOn && videoOn
+                frameBlur = materialOn && videoOn,
+                blurRadius = blurRadius
             )
         } else if (parallax || materialOn) {
             ParallaxBackground(

@@ -103,6 +103,8 @@ public final class DownloadQueueManager {
         private volatile String eventModVersion;
         /** 社区客户端 id，用来避免同一个客户端重复进队列。 */
         private volatile String nativeClientId;
+        /** ECXP 正在安装的 .NET 主版本。0 表示这不是 .NET 任务。 */
+        private volatile int dotnetMajor;
         /** 「含依赖」任务完成后的依赖解析结果，UI 用来展示装了哪些依赖。 */
         private volatile ModDependencyResolver.DependencyResult dependencyResult;
 
@@ -398,6 +400,25 @@ public final class DownloadQueueManager {
         task.message = "等待下载: " + displayName;
         addTask(task);
         schedule(task, () -> runMarketModpack(task, file, instanceId, onInstalled));
+        return task.id;
+    }
+
+    /**
+     * 把 ECXP 需要的 .NET 运行时放进下载队列，装到用户目录。
+     * 同一个主版本已在排队、下载或暂停时不重复提交。
+     */
+    public String submitDotnetRuntime(int major, Runnable onInstalled) {
+        synchronized (tasks) {
+            for (QueueTask existing : tasks.values()) {
+                if (existing.dotnetMajor != major) continue;
+                if (existing.isActive() || existing.status == TaskStatus.PAUSED) return existing.id;
+            }
+        }
+        QueueTask task = new QueueTask(UUID.randomUUID().toString(), ".NET " + major, TaskType.GENERIC_FILE);
+        task.dotnetMajor = major;
+        task.message = "等待下载: .NET " + major;
+        addTask(task);
+        schedule(task, () -> runDotnetRuntime(task, major, onInstalled));
         return task.id;
     }
 
@@ -1036,6 +1057,31 @@ public final class DownloadQueueManager {
             onInstalled.run();
         } catch (Throwable ignored) {
             // 文件已经落盘，刷新界面失败不影响队列结果
+        }
+    }
+
+    private void runDotnetRuntime(QueueTask task, int major, Runnable onInstalled) {
+        storeResumeWork(task.id, () -> runDotnetRuntime(task, major, onInstalled));
+        try {
+            com.pmcl.core.ecxp.DotnetInstaller.install(downloadManager, major,
+                    message -> {
+                        throwIfTaskInterrupted(task);
+                        task.message = message;
+                        notifyProgress(task);
+                    },
+                    (completed, total) -> {
+                        throwIfTaskInterrupted(task);
+                        if (total > 0) task.totalBytes = total;
+                        if (completed > 0) task.completedBytes = completed;
+                        notifyProgress(task);
+                    });
+            runInstalledCallback(onInstalled);
+        } catch (Throwable e) {
+            rethrowQueueFailure(e);
+        } finally {
+            if (!(task.pauseRequested || task.status == TaskStatus.PAUSED)) {
+                clearResumeWork(task.id);
+            }
         }
     }
 

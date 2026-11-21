@@ -1,5 +1,4 @@
 package com.pmcl.ui.page
-import com.pmcl.ui.animation.SplashArtwork
 import com.pmcl.ui.widget.pmclVerticalScroll
 import com.pmcl.ui.widget.pmclHorizontalScroll
 
@@ -356,11 +355,20 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                                 .padding(12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Image(
-                                painter = painterResource(if (style == "classic") "pmcl_icon.png" else "pmcl_icon_modern.png"),
-                                contentDescription = I18n.t("settings.launcher_icons.$style"),
-                                modifier = Modifier.size(64.dp).clip(RoundedCornerShape(14.dp))
-                            )
+                            if (style == "classic") {
+                                Image(
+                                    painter = painterResource("pmcl_icon.png"),
+                                    contentDescription = I18n.t("settings.launcher_icons.$style"),
+                                    modifier = Modifier.size(64.dp).clip(RoundedCornerShape(14.dp))
+                                )
+                            } else {
+                                Icon(
+                                    com.pmcl.ui.navigation.PmclModernIcons.Launch,
+                                    contentDescription = I18n.t("settings.launcher_icons.$style"),
+                                    modifier = Modifier.size(64.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Spacer(Modifier.height(8.dp))
                             Text(I18n.t("settings.launcher_icons.$style"), fontWeight = FontWeight.Medium)
                         }
@@ -727,6 +735,32 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(I18n.t("settings.live_wallpaper_glass_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                val glassBlur by vm.glassBlur.collectAsState()
+                Spacer(Modifier.height(8.dp))
+                Text(I18n.t("settings.glass_blur"), fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("0", style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.width(8.dp))
+                    Slider(
+                        value = glassBlur.toFloat(),
+                        onValueChange = { vm.setGlassBlur(it.toInt()) },
+                        valueRange = 0f..48f,
+                        steps = 47,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("48", style = MaterialTheme.typography.labelSmall,
+                         color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.width(12.dp))
+                    Text("$glassBlur", style = MaterialTheme.typography.labelMedium,
+                         modifier = Modifier.width(28.dp))
+                }
+                Text(I18n.t("settings.glass_blur_desc"),
                      style = MaterialTheme.typography.labelSmall,
                      color = MaterialTheme.colorScheme.outline)
 
@@ -1697,24 +1731,13 @@ private fun ReleaseAnnouncementItem(
 private fun AboutCard(vm: LauncherViewModel) {
     Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
         Column(Modifier.padding(16.dp)) {
-            SplashArtwork(
-                version = vm.core.launcherVersion(),
-                modifier = Modifier.fillMaxWidth().aspectRatio(1.75f)
-            )
-            Spacer(Modifier.height(16.dp))
             // === 头部：Logo + 名称 + 版本 ===
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 2.dp
-                ) {
-                    Image(
-                        painter = painterResource(com.pmcl.ui.navigation.PmclIconStyles.asset()),
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp).padding(2.dp)
-                    )
-                }
+                Image(
+                    painter = painterResource("pmcl_icon.png"),
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                )
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(I18n.t("about.title"), style = MaterialTheme.typography.titleMedium,
@@ -3702,6 +3725,22 @@ private fun GameBehaviorCard(vm: LauncherViewModel, pref: com.pmcl.core.preferen
             Text(I18n.t("settings.launcher_log_level_desc"),
                  style = MaterialTheme.typography.labelSmall,
                  color = MaterialTheme.colorScheme.outline)
+
+            val developerAccount by vm.account.collectAsState()
+            if (developerAccount?.isPmclDeveloper == true) {
+                val showLauncherLog by vm.launcherLogWindow.collectAsState()
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = showLauncherLog, onCheckedChange = { vm.setLauncherLogWindow(it) })
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(I18n.t("settings.show_launcher_log_window"))
+                        Text(I18n.t("settings.show_launcher_log_window_desc"),
+                             style = MaterialTheme.typography.labelSmall,
+                             color = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             Row(Modifier.agentSettingAnchor(vm, "fastCheck"), verticalAlignment = Alignment.CenterVertically) {

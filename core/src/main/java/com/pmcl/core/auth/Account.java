@@ -19,6 +19,8 @@ public final class Account {
     private final long expiresAt;
     /** Yggdrasil clientToken；皮肤站会话绑定用，空表示旧账号需重新登录 */
     private final String clientToken;
+    /** GitHub 登录后核对过的 PMCL 开发者。 */
+    private final boolean pmclDeveloper;
 
     public Account(String username, String uuid, String accessToken, AccountType type) {
         this(username, uuid, accessToken, type, "", "classic", "");
@@ -49,6 +51,13 @@ public final class Account {
     public Account(String username, String uuid, String accessToken, AccountType type,
                    String skinUrl, String skinModel, String xuid, String authServerUrl,
                    String msRefreshToken, long expiresAt, String clientToken) {
+        this(username, uuid, accessToken, type, skinUrl, skinModel, xuid, authServerUrl,
+                msRefreshToken, expiresAt, clientToken, false);
+    }
+
+    public Account(String username, String uuid, String accessToken, AccountType type,
+                   String skinUrl, String skinModel, String xuid, String authServerUrl,
+                   String msRefreshToken, long expiresAt, String clientToken, boolean pmclDeveloper) {
         this.username = username;
         this.uuid = uuid;
         this.accessToken = accessToken;
@@ -60,6 +69,7 @@ public final class Account {
         this.msRefreshToken = msRefreshToken != null ? msRefreshToken : "";
         this.expiresAt = expiresAt;
         this.clientToken = clientToken != null ? clientToken : "";
+        this.pmclDeveloper = pmclDeveloper;
     }
 
     public String getUsername() { return username; }
@@ -85,6 +95,8 @@ public final class Account {
     public long getExpiresAt() { return expiresAt; }
     /** Yggdrasil clientToken（皮肤站会话绑定）。 */
     public String getClientToken() { return clientToken; }
+    /** GitHub 账号是否已通过 PMCL 开发者认证。 */
+    public boolean isPmclDeveloper() { return pmclDeveloper; }
 
     /**
      * 微软账号是否应在启动前刷新：已过期或 5 分钟内过期，且持有 refresh_token。
@@ -104,13 +116,18 @@ public final class Account {
     /** 用新的 MC 会话字段构造副本（保留身份与皮肤元数据）。 */
     public Account withMicrosoftSession(String newAccessToken, String newRefreshToken, long newExpiresAt) {
         return new Account(username, uuid, newAccessToken, type, skinUrl, skinModel, xuid, authServerUrl,
-                newRefreshToken != null ? newRefreshToken : msRefreshToken, newExpiresAt, clientToken);
+                newRefreshToken != null ? newRefreshToken : msRefreshToken, newExpiresAt, clientToken, pmclDeveloper);
     }
 
     /** 用新的 Yggdrasil accessToken 构造副本（保留 clientToken）。 */
     public Account withAccessToken(String newAccessToken) {
         return new Account(username, uuid, newAccessToken, type, skinUrl, skinModel, xuid, authServerUrl,
-                msRefreshToken, expiresAt, clientToken);
+                msRefreshToken, expiresAt, clientToken, pmclDeveloper);
+    }
+
+    public Account withPmclDeveloper(boolean certified) {
+        return new Account(username, uuid, accessToken, type, skinUrl, skinModel, xuid, authServerUrl,
+                msRefreshToken, expiresAt, clientToken, certified);
     }
 
     /**

@@ -58,15 +58,6 @@ private val newsPixel: FontFamily by lazy {
     FontFamily(weights.map { Font(path, it) })
 }
 
-@OptIn(ExperimentalTextApi::class)
-actual fun splashPingFangFamily(): FontFamily {
-    val installed = installedNames()
-    val name = listOf("PingFang SC", "PingFang HK", "PingFang TC", "Heiti SC")
-        .firstOrNull { it in installed }
-        ?: "PingFang SC"
-    return FontFamily(name)
-}
-
 private fun autoFamilyName(): String {
     val installed = installedNames()
     return listOf("DIN Pro", "DINPro").firstOrNull { want ->

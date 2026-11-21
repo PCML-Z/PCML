@@ -19,7 +19,7 @@ object PmclIconStyles {
         style.value = if (raw == "classic") Style.Classic else Style.Modern
     }
 
-    fun asset(): String = if (style.value == Style.Classic) "pmcl_icon.png" else "pmcl_icon_modern.png"
+    fun asset(): String = "pmcl_icon.png"
 }
 
 object PmclIcons {

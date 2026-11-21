@@ -54,21 +54,53 @@ public final class DotnetRuntime {
     }
 
     public static DotnetRuntime probe() {
+        List<DotnetRuntime> found = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
         for (Path candidate : candidates()) {
             if (!Files.isRegularFile(candidate) || !Files.isExecutable(candidate)) continue;
+            String key;
+            try {
+                key = candidate.toRealPath().toString();
+            } catch (IOException e) {
+                key = candidate.toAbsolutePath().normalize().toString();
+            }
+            if (!seen.add(key)) continue;
             List<String> lines = listRuntimes(candidate);
             if (lines == null) continue;
-            List<String> versions = new ArrayList<>();
-            TreeSet<Integer> majors = new TreeSet<>();
+            found.add(fromLines(candidate.toAbsolutePath().normalize(), lines));
+        }
+        return prefer(found);
+    }
+
+    /** 同一台机器上有多份 dotnet 时，用主版本最高的那份。启动器装进用户目录的运行时才能盖过系统里的旧版本。 */
+    static DotnetRuntime prefer(List<DotnetRuntime> hosts) {
+        DotnetRuntime best = null;
+        DotnetRuntime first = null;
+        if (hosts != null) {
+            for (DotnetRuntime host : hosts) {
+                if (host == null || !host.found()) continue;
+                if (first == null) first = host;
+                if (host.versions.isEmpty()) continue;
+                if (best == null || host.highestMajor() > best.highestMajor()) best = host;
+            }
+        }
+        if (best != null) return best;
+        if (first != null) return first;
+        return new DotnetRuntime(null, List.of(), new TreeSet<>());
+    }
+
+    static DotnetRuntime fromLines(Path host, List<String> lines) {
+        List<String> versions = new ArrayList<>();
+        TreeSet<Integer> majors = new TreeSet<>();
+        if (lines != null) {
             for (String line : lines) {
                 Matcher m = RUNTIME.matcher(line.strip());
                 if (!m.find()) continue;
                 versions.add(m.group(1) + "." + m.group(2) + "." + m.group(3));
                 majors.add(Integer.parseInt(m.group(1)));
             }
-            return new DotnetRuntime(candidate.toAbsolutePath().normalize(), versions, majors);
         }
-        return new DotnetRuntime(null, List.of(), new TreeSet<>());
+        return new DotnetRuntime(host, versions, majors);
     }
 
     private static List<Path> candidates() {
