@@ -26,7 +26,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
@@ -258,11 +260,25 @@ public final class DownloadManager {
 
     static ExecutorService newDaemonPool(int threads, String name) {
         int n = Math.max(1, threads);
-        return Executors.newFixedThreadPool(n, r -> {
-            Thread t = new Thread(r, name);
-            t.setDaemon(true);
-            return t;
-        });
+        return new ThreadPoolExecutor(n, n, 0L, TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(),
+                r -> {
+                    Thread t = new Thread(r, name);
+                    t.setDaemon(true);
+                    return t;
+                }) {
+            @Override
+            protected void beforeExecute(Thread t, Runnable r) {
+                // 暂停或 cancel(true) 会把中断标记留在这条池线程上。
+                // 下一个文件若带着旧标记启动，会立刻被当成已中断，队列里就再也下不了。
+                Thread.interrupted();
+            }
+
+            @Override
+            protected void afterExecute(Runnable r, Throwable error) {
+                Thread.interrupted();
+            }
+        };
     }
 
     private static ExecutorService newDaemonCache(String name) {

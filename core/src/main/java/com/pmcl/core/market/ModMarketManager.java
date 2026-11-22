@@ -412,10 +412,20 @@ public final class ModMarketManager {
                                               String versionId, String instanceId,
                                               Preferences preferences,
                                               Consumer<String> onStatus) {
+        return installMod(file, gameVersion, versionId, instanceId, preferences, onStatus, null);
+    }
+
+    public CompletableFuture<Void> installMod(ModFile file, String gameVersion,
+                                              String versionId, String instanceId,
+                                              Preferences preferences,
+                                              Consumer<String> onStatus,
+                                              Consumer<Long> onBytes) {
         return CompletableFuture.runAsync(() -> {
+            // 公共线程池会复用被上一次暂停打断的线程，不先清掉就会在读到第一个字节前退出。
+            Thread.interrupted();
             try {
                 Path modsDir = resolveInstallModsDir(versionId, instanceId, preferences);
-                doInstallMod(file, modsDir, onStatus);
+                doInstallMod(file, modsDir, onStatus, onBytes);
             } catch (Exception e) {
                 throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
             }
@@ -426,15 +436,17 @@ public final class ModMarketManager {
     public CompletableFuture<Void> installModTo(ModFile file, Path modsDir,
                                                 Consumer<String> onStatus) {
         return CompletableFuture.runAsync(() -> {
+            Thread.interrupted();
             try {
-                doInstallMod(file, modsDir, onStatus);
+                doInstallMod(file, modsDir, onStatus, null);
             } catch (Exception e) {
                 throw new RuntimeException("模组下载失败: " + file.getFileName(), e);
             }
         });
     }
 
-    private void doInstallMod(ModFile file, Path modsDir, Consumer<String> onStatus) throws IOException {
+    private void doInstallMod(ModFile file, Path modsDir, Consumer<String> onStatus,
+                              Consumer<Long> onBytes) throws IOException {
         String fileName = file.getFileName();
         if (fileName == null || fileName.isBlank()
                 || fileName.contains("..")
@@ -466,7 +478,10 @@ public final class ModMarketManager {
         if (url == null || url.isBlank()) {
             throw new IOException("模组缺少下载地址: " + file.getFileName());
         }
-        downloads.downloadToVerified(url, target, sha1, sha512);
+        downloads.downloadToVerified(url, target, sha1, sha512, onBytes);
+        if (!Files.isRegularFile(target) || Files.size(target) <= 0) {
+            throw new IOException("模组文件没有写入: " + fileName);
+        }
         if (onStatus != null) onStatus.accept("完成: " + file.getFileName());
     }
 

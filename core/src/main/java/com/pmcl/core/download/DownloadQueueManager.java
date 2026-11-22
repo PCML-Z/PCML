@@ -896,7 +896,11 @@ public final class DownloadQueueManager {
                 throwIfTaskInterrupted(task);
                 task.message = status;
                 notifyProgress(task);
-            }).join();
+            }, bytes -> noteDownloadBytes(task, bytes)).join();
+            if (!modFileLanded(modFile, versionId, instanceId)) {
+                task.completedBytes = 0;
+                throw new java.io.IOException("模组文件没有写入: " + modFile.getFileName());
+            }
             task.completedBytes = task.totalBytes;
         } catch (Throwable e) {
             rethrowQueueFailure(e);
@@ -921,10 +925,17 @@ public final class DownloadQueueManager {
                         throwIfTaskInterrupted(task);
                         task.message = status;
                         notifyProgress(task);
-                    }).join();
+                    }, bytes -> noteDownloadBytes(task, bytes)).join();
             task.dependencyResult = result;
-            task.completedBytes = Math.max(task.totalBytes, 1);
-            if (task.totalBytes <= 0) task.totalBytes = task.completedBytes;
+            // 主模组下载失败时解析器仍会返回结果。不能把它记成完成，否则界面直接显示 100%。
+            String mainFailure = mainModFailure(result, modFile.getFileName());
+            if (mainFailure != null || !modFileLanded(modFile, versionId, instanceId)) {
+                task.completedBytes = 0;
+                throw new java.io.IOException(mainFailure != null
+                        ? mainFailure
+                        : "模组文件没有写入: " + modFile.getFileName());
+            }
+            if (task.totalBytes > 0) task.completedBytes = task.totalBytes;
             task.message = "完成: " + result.summary();
             notifyProgress(task, true);
         } catch (Throwable e) {
@@ -1113,6 +1124,28 @@ public final class DownloadQueueManager {
                 clearResumeWork(task.id);
             }
         }
+    }
+
+    private boolean modFileLanded(ModFile modFile, String versionId, String instanceId) {
+        if (modFile == null || modFile.getFileName() == null || modFile.getFileName().isBlank()) return false;
+        try {
+            Path jar = new com.pmcl.core.launch.GameDirResolver(config, preferences)
+                    .resolveModsDir(versionId, instanceId)
+                    .resolve(modFile.getFileName());
+            return Files.isRegularFile(jar) && Files.size(jar) > 0;
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
+    /** 主模组自己没下下来时返回失败原因；依赖失败不算。 */
+    private static String mainModFailure(ModDependencyResolver.DependencyResult result, String fileName) {
+        if (result == null || fileName == null || fileName.isBlank()) return null;
+        for (String item : result.getFailed()) {
+            if (item == null) continue;
+            if (item.equals(fileName) || item.startsWith(fileName + ":")) return item;
+        }
+        return null;
     }
 
     private static void throwIfTaskInterrupted(QueueTask task) {

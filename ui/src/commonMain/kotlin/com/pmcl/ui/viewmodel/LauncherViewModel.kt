@@ -2957,9 +2957,16 @@ class LauncherViewModel {
     }
 
     private fun publishQueue(tasks: List<DownloadQueueManager.QueueTask>) {
+        val previous = _queueTasks.value
         val views = tasks.map { it.toSnapshot() }
         _queueTasks.value = views
         _queueSummary.value = summarizeSnapshots(views)
+        val modLanded = views.any { snap ->
+            snap.type == DownloadQueueManager.TaskType.MOD_DOWNLOAD
+                && snap.status == DownloadQueueManager.TaskStatus.DONE
+                && previous.none { it.id == snap.id && it.status == DownloadQueueManager.TaskStatus.DONE }
+        }
+        if (modLanded) refreshInstalledMods()
     }
 
     /** 提交版本安装到队列 */

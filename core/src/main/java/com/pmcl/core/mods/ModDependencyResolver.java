@@ -2,7 +2,9 @@ package com.pmcl.core.mods;
 
 import com.google.gson.JsonParser;
 import com.pmcl.core.LauncherConfig;
+import com.pmcl.core.install.InstallInterruptedException;
 import com.pmcl.core.market.ModFile;
+import com.pmcl.core.util.Exceptions;
 import com.pmcl.core.market.ModMarketManager;
 import com.pmcl.core.market.ModProject;
 import com.pmcl.core.preferences.Preferences;
@@ -166,7 +168,14 @@ public final class ModDependencyResolver {
     public CompletableFuture<DependencyResult> installWithDependencies(
             ModFile modFile, String gameVersion, String versionId, String instanceId,
             Consumer<String> onStatus) {
+        return installWithDependencies(modFile, gameVersion, versionId, instanceId, onStatus, null);
+    }
+
+    public CompletableFuture<DependencyResult> installWithDependencies(
+            ModFile modFile, String gameVersion, String versionId, String instanceId,
+            Consumer<String> onStatus, Consumer<Long> onBytes) {
         return CompletableFuture.supplyAsync(() -> {
+            Thread.interrupted();
             List<String> installed = new ArrayList<>();
             List<String> skippedInstalled = new ArrayList<>();
             List<String> skippedSystem = new ArrayList<>();
@@ -177,7 +186,7 @@ public final class ModDependencyResolver {
             try {
                 // 1. 安装主模组
                 if (onStatus != null) onStatus.accept("正在下载: " + modFile.getFileName());
-                marketManager.installMod(modFile, gameVersion, versionId, instanceId, preferences, onStatus).join();
+                marketManager.installMod(modFile, gameVersion, versionId, instanceId, preferences, onStatus, onBytes).join();
 
                 // 2. 优先使用 API 提供的依赖信息（无需解析 jar）
                 List<String> deps = modFile.getDependencies();
@@ -186,7 +195,8 @@ public final class ModDependencyResolver {
                 if (deps == null || deps.isEmpty()) {
                     // API 未提供依赖信息，回退到解析 jar 内元数据
                     Path jarPath = resolveModsDir(versionId, instanceId).resolve(modFile.getFileName());
-                    if (!Files.exists(jarPath)) {
+                    if (!Files.isRegularFile(jarPath) || Files.size(jarPath) <= 0) {
+                        failed.add(modFile.getFileName() + ": 文件没有写入");
                         return new DependencyResult(modName, installed, skippedInstalled,
                                 skippedSystem, failed, notFound);
                     }
@@ -219,7 +229,12 @@ public final class ModDependencyResolver {
                         onStatus, 0, installedModIds);
 
             } catch (Throwable e) {
-                failed.add(modFile.getFileName() + ": " + e.getMessage());
+                if (InstallInterruptedException.isInterrupted(e)) {
+                    throw e instanceof RuntimeException
+                            ? (RuntimeException) e
+                            : new InstallInterruptedException("任务已中断", e);
+                }
+                failed.add(modFile.getFileName() + ": " + Exceptions.rootMessage(e));
             }
             return new DependencyResult(modFile.getFileName(), installed, skippedInstalled,
                     skippedSystem, failed, notFound);

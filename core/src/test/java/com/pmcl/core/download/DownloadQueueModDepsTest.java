@@ -55,7 +55,8 @@ class DownloadQueueModDepsTest {
             assertNotNull(task, "队列里应存在含依赖任务");
             assertEquals(DownloadQueueManager.TaskType.MOD_DOWNLOAD, task.getType());
             assertFalse(task.isActive(), "任务应已结束: " + task.getMessage());
-            assertEquals(DownloadQueueManager.TaskStatus.DONE, task.getStatus());
+            assertEquals(DownloadQueueManager.TaskStatus.FAILED, task.getStatus(), task.getMessage());
+            assertTrue(task.progress() < 1.0, "没下到文件不能显示 100%");
             assertNotNull(task.getDependencyResult(), "含依赖任务应回填依赖解析结果");
             assertTrue(task.getDependencyResult().getFailed().stream()
                             .anyMatch(s -> s.contains("broken-mod.jar")),

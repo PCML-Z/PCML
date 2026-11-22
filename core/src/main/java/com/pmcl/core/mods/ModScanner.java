@@ -93,19 +93,21 @@ public final class ModScanner {
     /** 目录树最大 mtime，用于扫描缓存；子目录增删 jar 也能失效。 */
     public static long directoryFingerprint(Path modsDir) {
         if (modsDir == null || !Files.isDirectory(modsDir)) return 0L;
-        long[] max = {0L};
+        long[] acc = {0L, 0L};
         try (Stream<Path> stream = DirectoryLinks.walk(modsDir, SCAN_MAX_DEPTH)) {
             stream.forEach(p -> {
                 try {
                     long t = Files.getLastModifiedTime(p).toMillis();
-                    if (t > max[0]) max[0] = t;
+                    if (t > acc[0]) acc[0] = t;
+                    acc[1]++;
                 } catch (Throwable ignored) {
                 }
             });
         } catch (IOException e) {
             return 0L;
         }
-        return max[0];
+        // 只看最新时间会漏掉更旧的新文件，个数变化也要让缓存失效。
+        return acc[0] ^ (acc[1] * 0x9E3779B97F4A7C15L);
     }
 
     /**
