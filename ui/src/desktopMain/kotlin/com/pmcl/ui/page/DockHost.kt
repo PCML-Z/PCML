@@ -22,6 +22,14 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.util.concurrent.atomic.AtomicReference
 
+/** 主窗口标题是「Proxima ML」加版本号。Studio 和悬浮窗用别的标题，不能算进来。 */
+private fun isLauncherWindowTitle(title: String): Boolean {
+    if (title == "Proxima ML") return true
+    if (!title.startsWith("Proxima ML ")) return false
+    val rest = title.removePrefix("Proxima ML ")
+    return rest.firstOrNull()?.isDigit() == true
+}
+
 /**
  * `embed=window` 模式的"占位宿主区域"。
  *
@@ -54,7 +62,7 @@ fun DockHost(pluginId: String, modifier: Modifier = Modifier) {
     val listenerRef = remember { AtomicReference<ComponentAdapter?>(null) }
 
     fun findMainWin(): Frame? =
-        (Window.getWindows().firstOrNull { w -> w is Frame && w.title.startsWith("PMCL") }
+        (Window.getWindows().firstOrNull { w -> w is Frame && isLauncherWindowTitle(w.title) }
             ?: Window.getWindows().firstOrNull { w -> w is Frame }) as? Frame
 
     // 用"当前主窗位置 + 占位区相对坐标"实时算出 AppleScript 全局坐标并写入注册表

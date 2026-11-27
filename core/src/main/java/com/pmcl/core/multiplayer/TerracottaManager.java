@@ -395,7 +395,7 @@ public final class TerracottaManager {
             } catch (IOException | SecurityException e) {
                 throw new RuntimeException(
                         "无法访问本地网络。请在 macOS「系统设置 → 隐私与安全性 → 本地网络」"
-                                + "中允许 PMCL，然后重新创建房间。", e);
+                                + "中允许 Proxima ML，然后重新创建房间。", e);
             }
         });
     }
@@ -580,7 +580,7 @@ public final class TerracottaManager {
     private void startMinecraftLanBeacon(int port, CompletableFuture<?> until,
                                          Consumer<String> progress) {
         CompletableFuture.runAsync(() -> {
-            String payload = "[MOTD]PMCL Local Game[/MOTD][AD]" + port + "[/AD]";
+            String payload = "[MOTD]Proxima ML[/MOTD][AD]" + port + "[/AD]";
             byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
             InetAddress group;
             try {
@@ -808,7 +808,7 @@ public final class TerracottaManager {
                 && ("host-ok".equals(targetState) || "host-starting".equals(altState))) {
             return "创建房间超时：未检测到 Minecraft 局域网世界（host-scanning）。"
                     + "请现在游戏内 Esc →「对局域网开放」，然后再次点击「创建房间」继续等待。"
-                    + "若已开放仍失败，请检查 macOS「本地网络」权限是否允许 PMCL 与 Minecraft。";
+                    + "若已开放仍失败，请检查 macOS「本地网络」权限是否允许 Proxima ML 与 Minecraft。";
         }
         if (lastState != null && lastState.startsWith("guest-") && "guest-ok".equals(targetState)) {
             return "加入房间超时（最后状态：" + lastState + "）。"

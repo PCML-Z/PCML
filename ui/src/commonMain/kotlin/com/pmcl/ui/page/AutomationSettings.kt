@@ -51,13 +51,13 @@ import java.util.UUID
 
 private const val JAVA_TEMPLATE = """public class Main {
     public static void main(String[] args) {
-        System.out.println("PMCL");
+        System.out.println("Proxima ML");
     }
 }
 """
 
 private const val KOTLIN_TEMPLATE = """fun main() {
-    println("PMCL")
+    println("Proxima ML")
 }
 """
 

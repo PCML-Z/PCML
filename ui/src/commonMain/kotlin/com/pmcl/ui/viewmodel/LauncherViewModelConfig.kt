@@ -13,8 +13,12 @@ import com.pmcl.core.gamecontent.ConfigFileManager
 
 // ============ 配置文件编辑器 ============
 
-/** 当前选中版本的 config 目录；版本隔离时与启动 gameDir 对齐并灌入已有配置 */
+/** 已选内容目标时用该目录的 config/，不创建、不灌入。否则沿用启动所选版本。 */
 fun LauncherViewModel.getConfigDir(): java.nio.file.Path {
+    if (contentTarget.value != null) {
+        val game = contentGameDir()
+        if (game != null) return game.resolve("config")
+    }
     val versionId = _selectedVersion.value
     if (versionId != null) {
         return com.pmcl.core.launch.GameDirResolver(config, preferences)

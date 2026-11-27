@@ -106,7 +106,7 @@ public final class PmclCli {
     private static final String SEP = "─────────────────────────────────────────────";
     private static final String BANNER =
         "\n+===========================================+\n" +
-        "|          PMCL Shell  v3.0.0               |\n" +
+        "|       Proxima ML Shell  v3.0.0            |\n" +
         "|   Minecraft Launcher - CLI Mode           |\n" +
         "|   Access all launcher core features       |\n" +
         "+===========================================+\n";
@@ -343,7 +343,7 @@ public final class PmclCli {
 
     private void cmdHelp() {
         System.out.println(SEP);
-        System.out.println("PMCL Shell - Available Commands:");
+        System.out.println("Proxima ML Shell - Available Commands:");
         System.out.println(SEP);
         System.out.println("  Version Management:");
         System.out.println("    versions / vs             List locally installed versions");
@@ -391,7 +391,7 @@ public final class PmclCli {
         System.out.println("    cache [clear]             Show cache info or clear all cache");
         System.out.println("    log [lines]               Show recent game log (default 50 lines)");
         System.out.println("    skin                      Show current account skin info");
-        System.out.println("    version / ver             Show PMCL version info");
+        System.out.println("    version / ver             Show Proxima ML version info");
         System.out.println("    open <dir>                Open directory in file manager");
         System.out.println("    url <url>                 Open URL in system browser");
         System.out.println("    theme <dark|light>        Quick switch theme");
@@ -566,7 +566,7 @@ public final class PmclCli {
             }
             if (javaPath == null) {
                 System.err.println("No suitable Java " + requiredJava + " runtime found.");
-                System.err.println("Please install the corresponding Java version, or configure Java path in PMCL settings.");
+                System.err.println("Please install the corresponding Java version, or configure Java path in Proxima ML settings.");
                 return;
             }
             Integer actualMajor = JavaRuntimeFinder.getMajorVersion(javaPath);
@@ -2446,7 +2446,7 @@ public final class PmclCli {
 
     private void cmdVersion() {
         System.out.println(SEP);
-        System.out.println("PMCL — Minecraft Launcher");
+        System.out.println("Proxima ML");
         System.out.println(SEP);
         System.out.println("  Java version: " + System.getProperty("java.version"));
         System.out.println("  Java vendor: " + System.getProperty("java.vendor"));

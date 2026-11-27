@@ -4,12 +4,16 @@ using System.Text.RegularExpressions;
 namespace Pmcl.Installer;
 
 /// <summary>
-/// 从 GitHub Release 里挑当前系统的安装包。只接受官方仓库的 https 地址。
+/// 从 GitHub Release 里挑当前系统的安装包。官方地址严格白名单；镜像只用于加速，
+/// 且必须原样指向同一个官方 release 路径，下载完再用官方 API 给的 sha256 校验。
 /// </summary>
 public static class ReleaseChooser
 {
     public const string LatestUrl = "https://api.github.com/repos/PCML-Z/PCML/releases/latest";
     public const long MaxBytes = 2L * 1024 * 1024 * 1024;
+
+    private const string RepoPrefix = "/PCML-Z/PCML/releases/download/";
+    private static readonly string[] MirrorHosts = ["gh-proxy.com", "ghfast.top"];
 
     private static readonly Regex Name = new(
         "^pmcl-[A-Za-z0-9._+-]+-(macos|windows|linux)-(arm64|x64)\\.(pkg|msi|deb|rpm)$",
@@ -24,6 +28,24 @@ public static class ReleaseChooser
             || host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
             || host.Equals("release-assets.githubusercontent.com", StringComparison.OrdinalIgnoreCase)
             || host.Equals("github-releases.githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>镜像链接必须是 https://白名单主机/https://github.com/PCML-Z/PCML/releases/download/…。</summary>
+    public static bool IsMirrorAllowed(Uri uri)
+    {
+        if (!string.Equals(uri.Scheme, "https", StringComparison.OrdinalIgnoreCase)) return false;
+        if (!MirrorHosts.Any(h => uri.IdnHost.Equals(h, StringComparison.OrdinalIgnoreCase))) return false;
+        return uri.AbsolutePath.StartsWith("/https://github.com" + RepoPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>为官方下载地址生成镜像链接；路径不匹配就不生成。</summary>
+    public static IReadOnlyList<Uri> MirrorUrls(Uri official)
+    {
+        if (!official.IdnHost.Equals("github.com", StringComparison.OrdinalIgnoreCase)) return [];
+        var path = official.AbsolutePath;
+        if (!path.StartsWith(RepoPrefix, StringComparison.OrdinalIgnoreCase)) return [];
+        var target = "https://github.com" + path + official.Query;
+        return MirrorHosts.Select(host => new Uri("https://" + host + "/" + target)).ToArray();
     }
 
     public static ReleaseAsset Choose(string json, string os, string arch, bool preferRpm = false)
@@ -51,7 +73,7 @@ public static class ReleaseChooser
             if (!string.Equals(match.Groups[2].Value, arch, StringComparison.Ordinal)) continue;
             if (!Uri.TryCreate(urlText, UriKind.Absolute, out var uri) || !IsAllowed(uri)) continue;
             if (size <= 0 || size > MaxBytes) continue;
-            found.Add(new ReleaseAsset(name, uri, size, version));
+            found.Add(new ReleaseAsset(name, uri, size, version, Digest(asset)));
         }
 
         var ext = os switch
@@ -69,8 +91,18 @@ public static class ReleaseChooser
             if (same.Count > 0) picked = same;
         }
         if (picked.Count != 1)
-            throw new InvalidOperationException("没有找到这个系统的 PMCL 安装包");
+            throw new InvalidOperationException("没有找到这个系统的 Proxima ML 安装包");
         return picked[0];
+    }
+
+    private static string Digest(JsonElement asset)
+    {
+        if (!asset.TryGetProperty("digest", out var element)) return "";
+        var text = element.GetString() ?? "";
+        if (!text.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) return "";
+        var hex = text[7..];
+        if (hex.Length != 64 || !hex.All(Uri.IsHexDigit)) return "";
+        return hex.ToLowerInvariant();
     }
 
     public static (string Os, string Arch) Current()
@@ -87,4 +119,5 @@ public static class ReleaseChooser
     }
 }
 
-public sealed record ReleaseAsset(string Name, Uri Url, long Size, string Version);
+/// <summary>第五个字段是 GitHub API 给出的 sha256，没有就为空。</summary>
+public sealed record ReleaseAsset(string Name, Uri Url, long Size, string Version, string Sha256 = "");

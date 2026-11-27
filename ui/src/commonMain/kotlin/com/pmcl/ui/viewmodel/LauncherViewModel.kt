@@ -85,6 +85,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
+ * 内容管理先选定的目标。instanceId 为空时管理这个版本自己的游戏目录。
+ */
+data class ContentManageTarget(val versionId: String, val instanceId: String)
+
+/**
  * 启动器主 ViewModel：UI 与 Java 内核之间的桥接层。
  */
 class LauncherViewModel {
@@ -565,6 +570,11 @@ class LauncherViewModel {
     // 本地版本详细信息（含 jar/json/inheritsFrom）
     @PublishedApi internal val _localVersionInfos = MutableStateFlow<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>>(emptyList())
     val localVersionInfos: StateFlow<List<com.pmcl.core.version.VersionManager.LocalVersionInfo>> = _localVersionInfos.asStateFlow()
+
+    private val _localGameSpaces = MutableStateFlow<List<com.pmcl.core.version.LocalGameStore.GameSpace>>(emptyList())
+    val localGameSpaces: StateFlow<List<com.pmcl.core.version.LocalGameStore.GameSpace>> = _localGameSpaces.asStateFlow()
+    private val _localGamesMeasuring = MutableStateFlow(false)
+    val localGamesMeasuring: StateFlow<Boolean> = _localGamesMeasuring.asStateFlow()
 
     // 固定的版本磁贴
     private val _pinnedVersions = MutableStateFlow<List<String>>(emptyList())
@@ -1089,6 +1099,16 @@ class LauncherViewModel {
     fun setPortraitLayout(v: Boolean) {
         _portraitLayout.value = v
         preferences.setPortraitLayout(v)
+    }
+
+    private val _portraitModeEnabled = MutableStateFlow(preferences.isPortraitModeEnabled())
+    val portraitModeEnabled: StateFlow<Boolean> = _portraitModeEnabled.asStateFlow()
+
+    /** 只开关竖屏。窗口大小仍由用户拖动决定。 */
+    fun setPortraitModeEnabled(v: Boolean) {
+        _portraitModeEnabled.value = v
+        preferences.setPortraitModeEnabled(v)
+        if (!v) setPortraitLayout(false)
     }
 
     private val _liveWallpaperGlass = MutableStateFlow(preferences.isLiveWallpaperGlass())
@@ -1766,6 +1786,8 @@ class LauncherViewModel {
 
     // ===== 世界 / 截图 / 资源包 / 光影 / 数据包（M29 Content 扩展访问） =====
     @PublishedApi internal val _worlds = MutableStateFlow<List<WorldManager.WorldInfo>>(emptyList())
+    @PublishedApi internal val _contentWorlds = MutableStateFlow<List<WorldManager.WorldInfo>>(emptyList())
+    val contentWorlds: StateFlow<List<WorldManager.WorldInfo>> = _contentWorlds.asStateFlow()
     val worlds: StateFlow<List<WorldManager.WorldInfo>> = _worlds.asStateFlow()
 
     @PublishedApi internal val _screenshots = MutableStateFlow<List<ScreenshotManager.Screenshot>>(emptyList())
@@ -2262,6 +2284,80 @@ class LauncherViewModel {
                     _scanning.value = false
                     _scanProgress.value = null
                 }
+            }
+        }
+    }
+
+    /** 统计本机游戏占用。共享库和资源索引不计入。 */
+    fun refreshLocalGames() {
+        if (!_localGamesMeasuring.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                val rows = withContext(Dispatchers.IO) {
+                    com.pmcl.core.version.LocalGameStore.measure(
+                        config.getWorkDir(),
+                        core.versions().getAllScanDirs()
+                    )
+                }
+                _localGameSpaces.value = rows
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _status.value = I18n.t("download.games_measure_failed", e.message ?: "")
+            } finally {
+                _localGamesMeasuring.value = false
+            }
+        }
+    }
+
+    /** 卸载一个本机游戏。正在运行时不删。 */
+    fun uninstallLocalGame(game: com.pmcl.core.version.LocalGameStore.GameSpace) {
+        if (_runningInstances.value.any { it.versionId == game.id || it.id == game.id }
+            || game.dataDirNames.any { name -> _runningInstances.value.any { it.id == name } }
+        ) {
+            _status.value = I18n.t("download.games_running")
+            return
+        }
+        if (!_localGamesMeasuring.compareAndSet(false, true)) return
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (game.isInstanceOnly) {
+                        com.pmcl.core.version.LocalGameStore.uninstallInstance(config.getWorkDir(), game.id)
+                    } else {
+                        com.pmcl.core.version.LocalGameStore.uninstallVersion(
+                            config.getWorkDir(),
+                            core.versions().getAllScanDirs(),
+                            game.id
+                        )
+                    }
+                }
+                if (!game.isInstanceOnly && _selectedVersion.value == game.id) {
+                    _selectedVersion.value = null
+                    preferences.setLastSelectedVersion("")
+                }
+                if (!game.isInstanceOnly && game.id in preferences.getPinnedVersions()) {
+                    preferences.unpinVersion(game.id)
+                    _pinnedVersions.value = preferences.getPinnedVersions()
+                    _pinnedTileLabels.value = HashMap(preferences.getPinnedTileLabelsRaw())
+                }
+                _localGameSpaces.value = withContext(Dispatchers.IO) {
+                    com.pmcl.core.version.LocalGameStore.measure(
+                        config.getWorkDir(),
+                        core.versions().getAllScanDirs()
+                    )
+                }
+                val list = withContext(Dispatchers.IO) { core.versions().scanAllLocalVersions(null) }
+                _localVersionInfos.value = list
+                _localVersions.value = list.map { it.getId() }
+                loadInstances()
+                _status.value = I18n.t("download.games_uninstalled", game.title)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _status.value = I18n.t("download.games_uninstall_failed", e.message ?: "")
+            } finally {
+                _localGamesMeasuring.value = false
             }
         }
     }
@@ -2782,7 +2878,13 @@ class LauncherViewModel {
         scope.launch {
             try {
                 val list = withContext(Dispatchers.IO) {
-                    core.modpacks().listInstalledModpacks()
+                    val all = core.modpacks().listInstalledModpacks()
+                    if (contentTarget.value == null) all
+                    else {
+                        val game = contentGameDir()?.toAbsolutePath()?.normalize()
+                        if (game == null) emptyList()
+                        else all.filter { it.instanceDir?.toAbsolutePath()?.normalize() == game }
+                    }
                 }
                 _modpacks.value = list
             } catch (e: Throwable) {
@@ -2849,7 +2951,8 @@ class LauncherViewModel {
      * @param format "modrinth" 导出 .mrpack；"curseforge" 导出 CF manifest.json 格式 .zip
      */
     fun exportModpack(targetPath: String, format: String) {
-        val versionId = _selectedVersion.value ?: run {
+        val versionId = _contentTarget.value?.versionId?.takeIf { it.isNotBlank() }
+            ?: _selectedVersion.value ?: run {
             _status.value = I18n.t("status.version_select_first")
             return
         }
@@ -4155,7 +4258,7 @@ class LauncherViewModel {
             val path = java.nio.file.Paths.get(targetPath)
             java.nio.file.Files.createDirectories(path.parent)
             val content = buildString {
-                append("PMCL 游戏日志\n")
+                append("Proxima ML 游戏日志\n")
                 append("导出时间: ").append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())).append("\n")
                 append("=").append("=".repeat(60)).append("\n\n")
                 append(logs.map { it.text }.joinToString("\n"))
@@ -4186,7 +4289,7 @@ class LauncherViewModel {
         scope.launch {
             try {
                 val content = redactSensitiveLogContent(texts.joinToString("\n"))
-                val name = "PMCL-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
+                val name = "ProximaML-Log-${java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())}"
                 val url = core.pastebin().upload(content, name)
                 _shareUrl.value = url
                 _status.value = I18n.t("status.logs_uploaded")
@@ -4301,6 +4404,44 @@ class LauncherViewModel {
 
     private val _instances = MutableStateFlow<List<InstanceInfo>>(emptyList())
     val instances: StateFlow<List<InstanceInfo>> = _instances.asStateFlow()
+
+    /** 内容页先选定的版本和实例。instanceId 为空表示管理这个版本自己的目录。 */
+    private val _contentTarget = MutableStateFlow<ContentManageTarget?>(null)
+    val contentTarget: StateFlow<ContentManageTarget?> = _contentTarget.asStateFlow()
+
+    fun setContentManageTarget(versionId: String, instanceId: String) {
+        _contentTarget.value = ContentManageTarget(versionId, instanceId)
+        _selectedDatapackWorld.value = null
+        _contentWorlds.value = emptyList()
+        _configCurrentDir.value = ""
+        _configFileContent.value = null
+        _currentConfigPath.value = null
+        _configFileDirty.value = false
+    }
+
+    fun clearContentManageTarget() {
+        _contentTarget.value = null
+        _selectedDatapackWorld.value = null
+        _contentWorlds.value = emptyList()
+        _configCurrentDir.value = ""
+        _configFileContent.value = null
+        _currentConfigPath.value = null
+        _configFileDirty.value = false
+    }
+
+    /** 当前内容管理目标的游戏目录。没有选定目标时返回 null，调用方保持原来的全量扫描。 */
+    fun contentGameDir(): java.nio.file.Path? {
+        val target = _contentTarget.value ?: return null
+        return try {
+            if (target.instanceId.isNotBlank()) {
+                val located = core.instances().locateExistingInstanceDir(target.instanceId)
+                if (located != null && java.nio.file.Files.isDirectory(located)) return located
+            }
+            com.pmcl.core.launch.GameDirResolver(config, preferences).peekGameDir(target.versionId)
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     @PublishedApi internal val _instanceLaunching = MutableStateFlow<String?>(null)
     val instanceLaunching: StateFlow<String?> = _instanceLaunching.asStateFlow()

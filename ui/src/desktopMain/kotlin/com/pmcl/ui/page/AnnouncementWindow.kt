@@ -89,7 +89,7 @@ fun AnnouncementWindow(
     Window(
         onCloseRequest = onClose,
         icon = com.pmcl.ui.navigation.pmclWindowIcon(),
-        title = "PMCL ${I18n.t("announcement.window_title")}",
+        title = "Proxima ML ${I18n.t("announcement.window_title")}",
         state = state,
         undecorated = borderless,
         transparent = borderless

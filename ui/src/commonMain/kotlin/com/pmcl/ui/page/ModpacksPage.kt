@@ -39,6 +39,8 @@ fun ModpacksPage(vm: LauncherViewModel) {
     val progress by vm.modpackProgress.collectAsState()
     val busy by vm.modpackBusy.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
+    val contentTarget by vm.contentTarget.collectAsState()
+    val manageVersion = contentTarget?.versionId?.takeIf { it.isNotBlank() } ?: selectedVersion
     val updateChecking by vm.modpackUpdateChecking.collectAsState()
     val updateResult by vm.modpackUpdateResult.collectAsState()
 
@@ -55,7 +57,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
     var filterLoader by remember { mutableStateOf<String?>(null) }
     var filterSource by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) { if (modpacks.isEmpty()) vm.refreshModpacks() }
+    LaunchedEffect(Unit) { vm.refreshModpacks() }
 
     // 应用过滤
     val filteredModpacks = remember(modpacks, filterGameVersion, filterLoader, filterSource) {
@@ -127,7 +129,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
                 }
                 Button(
                     onClick = { showExportDialog = true },
-                    enabled = !busy && selectedVersion != null,
+                    enabled = !busy && manageVersion != null,
                     modifier = Modifier.padding(start = 8.dp)
                 ) {
                     Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -243,7 +245,7 @@ fun ModpacksPage(vm: LauncherViewModel) {
     // 导出对话框
     if (showExportDialog) {
         ExportModpackDialog(
-            versionId = selectedVersion ?: "",
+            versionId = manageVersion ?: "",
             onDismiss = { showExportDialog = false },
             onConfirm = { path, format ->
                 showExportDialog = false

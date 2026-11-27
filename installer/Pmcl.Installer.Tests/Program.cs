@@ -17,6 +17,8 @@ internal static class Program
         failed += Check(FormatsProgress, "progress text");
         failed += Check(DownloadsInChunks, "chunked download");
         failed += Check(FallsBackWithoutRange, "range fallback");
+        failed += Check(ParsesDigestAndMirrors, "digest and mirrors");
+        failed += Check(RejectsCorruptedDownload, "sha256 verification");
         return failed == 0 ? 0 : 1;
     }
 
@@ -164,7 +166,7 @@ internal static class Program
 
     private static void FallsBackWithoutRange()
     {
-        var data = new byte[5 * 1024 * 1024];
+        var data = new byte[3 * 1024 * 1024];
         new Random(7).NextBytes(data);
         var handler = new FakeHandler(data, range: false);
         using var http = new HttpClient(handler);
@@ -220,6 +222,51 @@ internal static class Program
             full.Headers.ContentLength = data.Length;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = full });
         }
+    }
+
+    private static void ParsesDigestAndMirrors()
+    {
+        const string digest = "b9bce8205c14a1590d629f7d1e5d3fe18e38635956e7d4b05e482eee7baa6bad";
+        var json = Release(
+            Asset("pmcl-2.11.1-macos-arm64.pkg",
+                "https://github.com/PCML-Z/PCML/releases/download/v2.11.1/pmcl-2.11.1-macos-arm64.pkg", 1000)
+            .Replace("\"size\":1000}", "\"size\":1000,\"digest\":\"sha256:" + digest + "\"}"));
+        var picked = ReleaseChooser.Choose(json, "macos", "arm64");
+        if (!string.Equals(picked.Sha256, digest, StringComparison.Ordinal))
+            throw new InvalidOperationException("digest not parsed");
+
+        var mirrors = ReleaseChooser.MirrorUrls(picked.Url);
+        if (mirrors.Count != 2) throw new InvalidOperationException("mirror count " + mirrors.Count);
+        if (!mirrors.All(ReleaseChooser.IsMirrorAllowed))
+            throw new InvalidOperationException("mirror not allowed");
+        if (ReleaseChooser.IsMirrorAllowed(new Uri("https://gh-proxy.com/https://evil.example/x.pkg")))
+            throw new InvalidOperationException("foreign mirror allowed");
+    }
+
+    private static void RejectsCorruptedDownload()
+    {
+        var good = new byte[2 * 1024 * 1024];
+        new Random(11).NextBytes(good);
+        var expectedHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(good)).ToLowerInvariant();
+        var bad = new byte[good.Length];
+        new Random(12).NextBytes(bad);
+
+        var handler = new FakeHandler(bad, range: false);
+        using var http = new HttpClient(handler);
+        var asset = TestAsset(good.Length) with { Sha256 = expectedHash };
+        var dir = Path.Combine(Path.GetTempPath(), "pmcl-dl-test-" + Guid.NewGuid().ToString("N"));
+        var dest = Path.Combine(dir, asset.Name);
+        try
+        {
+            ReleaseDownloader.DownloadAsync(http, asset, dest, null, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (InvalidOperationException e) when (e.Message.Contains("校验失败", StringComparison.Ordinal))
+        {
+            if (File.Exists(dest)) throw new InvalidOperationException("corrupted file was kept");
+            Directory.Delete(dir, true);
+            return;
+        }
+        throw new InvalidOperationException("corrupt download was accepted");
     }
 
     private static void Expect(string actual, string expected)

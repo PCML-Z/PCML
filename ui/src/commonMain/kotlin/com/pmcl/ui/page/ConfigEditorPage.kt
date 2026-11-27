@@ -60,6 +60,8 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
     val isDirty by vm.configFileDirty.collectAsState()
     val status by vm.status.collectAsState()
     val selectedVersion by vm.selectedVersion.collectAsState()
+    val contentTarget by vm.contentTarget.collectAsState()
+    val shownVersion = contentTarget?.versionId?.takeIf { it.isNotBlank() } ?: selectedVersion
 
     var searchText by remember { mutableStateOf("") }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -94,8 +96,8 @@ fun ConfigEditorPage(vm: LauncherViewModel) {
             TypewriterTitle(I18n.t("config.title"), style = MaterialTheme.typography.headlineSmall,
                  fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            if (selectedVersion != null) {
-                Text(I18n.t("config.version_label", selectedVersion),
+            if (shownVersion != null) {
+                Text(I18n.t("config.version_label", shownVersion),
                      style = MaterialTheme.typography.bodySmall,
                      color = MaterialTheme.colorScheme.outline)
                 Spacer(Modifier.width(12.dp))

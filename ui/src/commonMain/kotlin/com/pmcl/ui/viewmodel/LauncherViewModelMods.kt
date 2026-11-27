@@ -565,6 +565,11 @@ fun LauncherViewModel.clearDepInstallResult() {
 // ============ 已安装 Mod 扫描 ============
 
 fun LauncherViewModel.refreshInstalledMods() {
+    if (contentTarget.value != null) {
+        val scoped = contentGameDir()?.resolve("mods") ?: return
+        refreshInstalledModsScoped(scoped)
+        return
+    }
     // 先读缓存秒开
     scope.launch {
         try {
@@ -663,6 +668,35 @@ fun LauncherViewModel.refreshInstalledMods() {
             _status.value = I18n.t("status.scan_mods_failed", e.message ?: I18n.t("common.unknown"))
             System.err.println("[refreshInstalledMods] 顶层异常: ${e.javaClass.name}: ${e.message}")
             e.printStackTrace()
+        }
+    }
+}
+
+/** 只扫描内容管理目标的 mods 目录，不覆盖全量缓存。 */
+private fun LauncherViewModel.refreshInstalledModsScoped(modsDir: java.nio.file.Path) {
+    scope.launch {
+        try {
+            val mods = withContext(Dispatchers.IO) {
+                val dirMtime = try {
+                    ModScanner.directoryFingerprint(modsDir)
+                } catch (_: Throwable) { 0L }
+                val cached = modScanCache[modsDir]
+                val part = if (cached != null && cached.dirMtime == dirMtime && dirMtime > 0L) {
+                    cached.mods
+                } else {
+                    val scanned = ModScanner.scanDirectory(modsDir)
+                    modScanCache[modsDir] = ModScanCacheEntry(dirMtime, scanned)
+                    scanned
+                }
+                val source = sourceLabelFor(modsDir)
+                for (m in part) m.setSource(source)
+                try { core.modTagStore().applyTags(part) } catch (_: Throwable) {}
+                part
+            }
+            _installedMods.value = mods
+            _status.value = I18n.t("status.mods_scanned", mods.size, modsDirsCount(mods))
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_mods_failed", e.message ?: I18n.t("common.unknown"))
         }
     }
 }
@@ -1066,6 +1100,10 @@ class McmodPendingLinks(
 
 @PublishedApi
 internal fun LauncherViewModel.currentModsDir(): java.nio.file.Path {
+    if (contentTarget.value != null) {
+        val game = contentGameDir()
+        if (game != null) return game.resolve("mods")
+    }
     return com.pmcl.core.launch.GameDirResolver(config, preferences)
         .resolveModsDir(_selectedVersion.value, _selectedInstanceId.value)
 }

@@ -208,6 +208,13 @@ internal fun PortraitResourceHub(
                 }
             }
         }
+        Spacer(Modifier.height(12.dp))
+        PortraitLinkRow(
+            icon = PmclIcons.Dataset,
+            title = I18n.t("download.local_games"),
+            hint = I18n.t("download.games_hint"),
+            onClick = { onOpen(NavDestination.Download, "games") }
+        )
         Spacer(Modifier.height(18.dp))
     }
 }
@@ -502,6 +509,7 @@ private fun PortraitHubHeader(
             )
             DropdownMenu(expanded = menu, onDismissRequest = { onMenu(false) }) {
                 PortraitMenuRow("download.local_versions") { onMenu(false); onOpen(NavDestination.Download, "versions") }
+                PortraitMenuRow("download.local_games") { onMenu(false); onOpen(NavDestination.Download, "games") }
                 PortraitMenuRow("nav.market") { onMenu(false); onOpen(NavDestination.Download, "market") }
                 PortraitMenuRow("nav.queue") { onMenu(false); onOpen(NavDestination.Download, "queue") }
                 PortraitMenuRow("nav.wiki") { onMenu(false); onOpen(NavDestination.Download, "wiki") }
@@ -711,6 +719,7 @@ internal fun PortraitJavaPage(vm: LauncherViewModel, onBack: () -> Unit) {
 internal fun PortraitLauncherPage(vm: LauncherViewModel, onBack: () -> Unit) {
     val pref = vm.preferences
     val pulse by vm.settingsPulse.collectAsState()
+    val portraitMode by vm.portraitModeEnabled.collectAsState()
     var borderless by remember(pulse) { mutableStateOf(pref.isBorderlessWindow()) }
     var segmented by remember(pulse) { mutableStateOf(pref.isUseSegmentedLaunchLayout()) }
     Column(Modifier.fillMaxSize().pmclVerticalScroll(rememberScrollState())) {
@@ -718,6 +727,9 @@ internal fun PortraitLauncherPage(vm: LauncherViewModel, onBack: () -> Unit) {
         Spacer(Modifier.height(10.dp))
         PortraitOutline {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                PortraitSwitchRow(I18n.t("settings.portrait_layout"), I18n.t("settings.portrait_layout_desc"), portraitMode) {
+                    vm.setPortraitModeEnabled(it)
+                }
                 PortraitSwitchRow(I18n.t("settings.borderless_window"), I18n.t("settings.borderless_window_desc"), borderless) {
                     borderless = it
                     pref.setBorderlessWindow(it)

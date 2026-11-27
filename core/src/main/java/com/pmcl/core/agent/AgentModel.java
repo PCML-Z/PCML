@@ -45,7 +45,7 @@ public final class AgentModel {
         return MAX_TOKENS;
     }
     private static final String SYSTEM =
-            "你是 PMCL 里的智能体，要替用户分步完成启动器里的操作。"
+            "你是 Proxima ML 里的智能体，要替用户分步完成启动器里的操作。"
                     + "一次只做一步：先用不超过二十个字写出这一步在想什么，再调用工具。"
                     + "看完工具结果，再想下一步。没做完就继续，不要提前说已经完成。"
                     + "打开页面或某个设置选项都用 open_page，page 填用户的原话，例如光影、模组、使用 macOS Game Mode 启动游戏。不要调用 ui.navigate。"

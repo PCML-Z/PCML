@@ -1,4 +1,4 @@
-                      PMCL Software Technical License
+                      Proxima ML Software Technical License
                             Version 1.1 (EN)
                               Released 2026
 
@@ -17,9 +17,9 @@ This License is a non-commercial, source-available license, aiming to
 balance open-source sharing with copyright protection. This License is
 not a public domain dedication, nor is it a variant of existing open-
 source licenses such as MIT, GPL, or Apache. It is an independent
-license tailored to the characteristics of the PMCL project.
+license tailored to the characteristics of the Proxima ML project.
 
-NOTE: This is an English translation of the PMCL Software Technical
+NOTE: This is an English translation of the Proxima ML Software Technical
 License v1.1. The Chinese version is the authoritative version (see
 Section 13.4). In case of any discrepancy or ambiguity, the Chinese
 version shall prevail.
@@ -28,7 +28,7 @@ version shall prevail.
 
 Section 1. Definitions
 
-  1.1 "Software" refers to the PMCL (PMCL Minecraft Launcher) launcher
+  1.1 "Software" refers to the Proxima ML (Proxima ML Minecraft Launcher) launcher
       developed by peddlejumper, together with all its source code,
       binary files, resource files, configuration files, documentation,
       and related materials, whether in Source or Object form, and
@@ -310,12 +310,12 @@ Section 4. Modification and Derivative Works
           project-level documentation (such as README, CHANGELOG, or
           About interface):
 
-          Original Work: PMCL Minecraft Launcher
+          Original Work: Proxima ML Minecraft Launcher
                         (https://github.com/peddlejumper)
           Original Copyright Owner: peddlejumper
-          Original License: PMCL Software Technical License v1.1
+          Original License: Proxima ML Software Technical License v1.1
 
-          This Modified Version is based on the original PMCL
+          This Modified Version is based on the original Proxima ML
           Modifier: [Your Name]
           Modification Date: [YYYY-MM-DD]
           Modification Summary: [Brief Description]
@@ -340,7 +340,7 @@ Section 4. Modification and Derivative Works
           (see Section 8).
 
   4.4 Copyleft Requirement (Same-License Distribution). Your Modified
-      Version must be distributed under this License (PMCL Software
+      Version must be distributed under this License (Proxima ML Software
       Technical License v1.1) or terms consistent with its core
       provisions, and:
 
@@ -362,7 +362,7 @@ Section 4. Modification and Derivative Works
   4.5 Endorsement Prohibition. You may not, in any manner, expressly or
       implicitly state or imply that Your Modified Version is endorsed,
       sponsored, or approved by the original Licensor. You may not use
-      names such as "Official PMCL", "PMCL Genuine", "PMCL Authorized
+      names such as "Official Proxima ML", "Proxima ML Genuine", "Proxima ML Authorized
       Edition", or other names that may cause confusion with the
       original work or imply official endorsement.
 
@@ -379,7 +379,7 @@ Section 4. Modification and Derivative Works
 
       (a) Unless You and the Licensor have a separate written agreement,
           any Contribution You submit is deemed to be licensed to the
-          Licensor under the PMCL Software Technical License v1.1. The
+          Licensor under the Proxima ML Software Technical License v1.1. The
           Licensor has the right to decide at its discretion whether to
           include it;
       (b) You represent and warrant that the Contribution You submit is
@@ -404,7 +404,7 @@ Section 5. Distribution License
       conditions:
 
       (a) Provide License: You must provide each recipient with a
-          complete, unmodified copy of this License (PMCL Software
+          complete, unmodified copy of this License (Proxima ML Software
           Technical License v1.1). The License text may be included in
           the distribution package, or recipients may be directed to
           obtain it in a prominent manner (such as providing a download
@@ -504,9 +504,9 @@ Section 5. Distribution License
       include the following compliance statement in the distribution
       documentation:
 
-      "This software is developed/distributed based on PMCL Minecraft
+      "This software is developed/distributed based on Proxima ML Minecraft
       Launcher (https://github.com/peddlejumper), under the terms of
-      the PMCL Software Technical License v1.1. PMCL is not affiliated
+      the Proxima ML Software Technical License v1.1. Proxima ML is not affiliated
       with Mojang AB in any way. Minecraft is a trademark of Mojang AB."
 
 ========================================================================
@@ -519,16 +519,16 @@ Section 6. Trademark and Attribution
       customarily describe the origin of the Software and to reproduce
       the contents of a NOTICE file.
 
-  6.2 "PMCL" Name Protection. "PMCL" is the project name used by the
+  6.2 "Proxima ML" Name Protection. "Proxima ML" is the project name used by the
       Licensor. Without the Licensor's prior written consent, You may
-      not use "PMCL" in the following circumstances:
+      not use "Proxima ML" in the following circumstances:
 
-      (a) Naming Your Modified Version "PMCL" or a name containing
-          "PMCL" that may cause confusion with the original work;
-      (b) Publishing any product or service under the name "PMCL";
-      (c) Registering "PMCL" as a trademark, domain name, or other
+      (a) Naming Your Modified Version "Proxima ML" or a name containing
+          "Proxima ML" that may cause confusion with the original work;
+      (b) Publishing any product or service under the name "Proxima ML";
+      (c) Registering "Proxima ML" as a trademark, domain name, or other
           commercial identifier;
-      (d) Using "PMCL" as a selling point or association identifier in
+      (d) Using "Proxima ML" as a selling point or association identifier in
           commercial promotions.
 
   6.3 Interface Attribution Retention. The copyright information
@@ -728,7 +728,7 @@ Section 13. Miscellaneous
        with translations in other languages, the Chinese version shall
        prevail.
 
-  13.5 Version Evolution. This License is PMCL Software Technical
+  13.5 Version Evolution. This License is Proxima ML Software Technical
        License v1.1. The Licensor may release new versions in the
        future to adapt to legal changes or project requirements. The
        authoritative text of each version is published at
@@ -748,16 +748,16 @@ Appendix A: How to Apply This License to Your Modified Version
   headers, or the About interface):
 
   --------------------------------------------------------------------
-  Original Work: PMCL Minecraft Launcher
+  Original Work: Proxima ML Minecraft Launcher
   Original Author: peddlejumper (https://github.com/peddlejumper)
-  Original License: PMCL Software Technical License v1.1
+  Original License: Proxima ML Software Technical License v1.1
 
-  This Modified Version is based on the original PMCL, modified by:
+  This Modified Version is based on the original Proxima ML, modified by:
   [Your Name]
   Modification Date: [YYYY-MM-DD]
   Modifications: [Brief Description]
 
-  This Modified Version is also governed by the terms of the PMCL
+  This Modified Version is also governed by the terms of the Proxima ML
   Software Technical License v1.1.
   --------------------------------------------------------------------
 
@@ -794,7 +794,7 @@ Appendix B: Authorization Quick Reference
   | Bundle with malware          | No         | 3.4(d), 5.2(e)       |
   | Remove copyright notices     | No         | 3.4(e), 4.3          |
   | Closed-source distribution   | No         | 4.4(c)               |
-  | Name as "PMCL xxx"           | No         | 6.2(a)               |
+  | Name as "Proxima ML xxx"           | No         | 6.2(a)               |
   +------------------------------+------------+----------------------+
 
 ========================================================================
@@ -811,7 +811,7 @@ Appendix C: Differences from Common Open-Source Licenses
       - MIT does not require Modified Versions to be distributed under
         the same license; this License does (see Section 4.4);
       - MIT does not restrict naming; this License restricts the use of
-        the "PMCL" name (see Section 6.2).
+        the "Proxima ML" name (see Section 6.2).
 
   C.2 Differences from GNU GPL:
       - GPL grants patent licenses; this License expressly does not
@@ -842,7 +842,7 @@ Appendix C: Differences from Common Open-Source Licenses
         commercial licensing space (unlike MIT/GPL/Apache);
       - Weak copyleft: Copyleft is limited to the Modified Version
         itself, without linking to independent works (unlike GPL);
-      - Trademark protection: Restricts the use of the "PMCL" name to
+      - Trademark protection: Restricts the use of the "Proxima ML" name to
         prevent confusion (unlike MIT/Apache).
 
 ========================================================================

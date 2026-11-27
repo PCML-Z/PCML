@@ -199,7 +199,7 @@ private fun tipArticles() = listOf(
     ), "launch", null, "启动"),
     TipArticle("accounts", "账号分四个入口", "列表里看不到登录按钮是正常的。", Icons.Filled.Person, listOf(
         TipSection("去哪登", listOf(
-            "「账号管理」只放已经登过的号。新号要去旁边的「离线登录」「微软登录」「GitHub 登录」或「皮肤站登录」。",
+            "「档案管理」只放已经登过的号。新号要去旁边的「离线登录」「微软登录」「GitHub 登录」或「皮肤站登录」。",
             "离线填个名字就行。微软会跳到浏览器。另外两种按那一页自己的框填，别套微软那套。"
         )),
         TipSection("皮肤和好友", listOf(
@@ -261,7 +261,7 @@ private fun tipArticles() = listOf(
     ), "launch", null, "启动"),
     TipArticle("terminal", "终端窗口各自记各自的", "关掉一个，别的还在。", Icons.Filled.Terminal, listOf(
         TipSection("页里能做的", listOf(
-            "这里跑的是 PMCL 的命令。可以搜输出、复制、改字号、Tab 补全。正在跑的命令用停止取消，窗口不会一起关。",
+            "这里跑的是 Proxima ML 的命令。可以搜输出、复制、改字号、Tab 补全。正在跑的命令用停止取消，窗口不会一起关。",
             "清屏只清这个窗口的输出。"
         )),
         TipSection("再开一个", listOf(

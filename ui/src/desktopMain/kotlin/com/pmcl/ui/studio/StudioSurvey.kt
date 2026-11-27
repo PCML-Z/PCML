@@ -359,7 +359,7 @@ internal object SurveyHub {
 private fun systemLine(version: String): String {
     val os = listOf(System.getProperty("os.name"), System.getProperty("os.version"), System.getProperty("os.arch"))
         .filterNotNull().joinToString(" ")
-    return "PMCL $version · $os · Java ${System.getProperty("java.version").orEmpty()}"
+    return "Proxima ML $version · $os · Java ${System.getProperty("java.version").orEmpty()}"
 }
 
 private fun overallLabel(n: Int): String = if (n in 1..5) sv("overall_$n") else sv("overall_0")

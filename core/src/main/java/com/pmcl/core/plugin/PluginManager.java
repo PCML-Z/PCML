@@ -2567,7 +2567,7 @@ public final class PluginManager {
             if (RESERVED_COMMAND_NAMES.contains(name.toLowerCase())) {
                 throw new IllegalArgumentException(
                         "Command name '" + name + "' in plugin '" + pluginId + "' is reserved " +
-                        "and cannot be used (clashes with a built-in PMCL command)");
+                        "and cannot be used (clashes with a built-in Proxima ML command)");
             }
             if (description == null || description.isBlank()) {
                 throw new IllegalArgumentException(

@@ -92,7 +92,7 @@ public final class MenuBackgroundManager implements MenuBackgroundProvider {
             // MC 1.20.5+ 严格校验：pack_format 不匹配且无 supported_formats 时资源包不生效。
             String mcmeta = "{\"pack\":{\"pack_format\":" + packFormat
                     + ",\"supported_formats\":[4,99]"
-                    + ",\"description\":\"PMCL Menu Background\"}}";
+                    + ",\"description\":\"Proxima ML Menu Background\"}}";
             zos.putNextEntry(new ZipEntry("pack.mcmeta"));
             zos.write(mcmeta.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();

@@ -107,9 +107,9 @@ internal object CompanionBleAdvertiser {
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>LSUIElement</key><true/>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>PMCL 通过蓝牙让手表发现这台电脑。</string>
+  <string>Proxima ML 通过蓝牙让手表发现这台电脑。</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
-  <string>PMCL 通过蓝牙让手表发现这台电脑。</string>
+  <string>Proxima ML 通过蓝牙让手表发现这台电脑。</string>
 </dict>
 </plist>
 """

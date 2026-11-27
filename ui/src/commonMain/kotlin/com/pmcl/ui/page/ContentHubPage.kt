@@ -13,15 +13,19 @@ import com.pmcl.ui.viewmodel.LauncherViewModel
 fun ContentHubPage(vm: LauncherViewModel, sectionId: String = "mods") {
     Box(Modifier.fillMaxSize()) {
         when (sectionId) {
-            "modpacks" -> ModpacksPage(vm)
-            "shaders" -> ShaderPacksPage(vm)
-            "projections" -> ProjectionsPage(vm)
-            "resourcepacks" -> ResourcePacksPage(vm)
-            "datapacks" -> DatapacksPage(vm)
-            "configs" -> ConfigEditorPage(vm)
             "skins" -> OfflineSkinsPage(vm)
             "memory" -> MemoryUsagePage(vm)
-            else -> ModsPage(vm)
+            else -> ContentTargetGate(vm) {
+                when (sectionId) {
+                    "modpacks" -> ModpacksPage(vm)
+                    "shaders" -> ShaderPacksPage(vm)
+                    "projections" -> ProjectionsPage(vm)
+                    "resourcepacks" -> ResourcePacksPage(vm)
+                    "datapacks" -> DatapacksPage(vm)
+                    "configs" -> ConfigEditorPage(vm)
+                    else -> ModsPage(vm)
+                }
+            }
         }
     }
 }

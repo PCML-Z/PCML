@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 
 /** Cursor 用的 Streamable HTTP MCP。只暴露只读状态、打开页面和启动。 */
 public final class CursorMcp {
-    static final String INSTRUCTIONS = "Operate this local PMCL launcher. You can read versions, instances, "
+    static final String INSTRUCTIONS = "Operate this local Proxima ML launcher. You can read versions, instances, "
             + "account names, and the status line; open a page; select a version; and launch a version or instance. "
             + "Account tokens, passwords, and game logs are not available. Launch tools return when the launcher "
             + "accepts the request; call pmcl_status to see whether the game is running. "

@@ -120,9 +120,9 @@ public final class MacDictation {
                   <key>LSUIElement</key><true/>
                   <key>NSHighResolutionCapable</key><true/>
                   <key>NSMicrophoneUsageDescription</key>
-                  <string>PMCL 使用麦克风把你说的话转成文字。</string>
+                  <string>Proxima ML 使用麦克风把你说的话转成文字。</string>
                   <key>NSSpeechRecognitionUsageDescription</key>
-                  <string>PMCL 把语音转成输入框中的文字。</string>
+                  <string>Proxima ML 把语音转成输入框中的文字。</string>
                 </dict>
                 </plist>
                 """;

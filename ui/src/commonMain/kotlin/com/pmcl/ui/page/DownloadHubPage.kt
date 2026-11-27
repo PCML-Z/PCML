@@ -14,6 +14,7 @@ fun DownloadHubPage(vm: LauncherViewModel, sectionId: String = "versions") {
     Box(Modifier.fillMaxSize()) {
         when {
             marketType != null -> ModsMarketPage(vm, marketType)
+            sectionId == "games" -> LocalGamesPage(vm)
             sectionId == "queue" -> DownloadsPage(vm)
             sectionId == "wiki" -> WikiPage(vm)
             else -> DownloadPage(vm)

@@ -36,6 +36,44 @@ data class ManagedProjection(
  * UI 调用签名不变（需 import 扩展函数）。
  */
 
+private fun LauncherViewModel.resourcePackManager(): ResourcePackManager {
+    val game = if (contentTarget.value != null) contentGameDir() else null
+    return if (game != null) ResourcePackManager(game) else core.resourcePacks()
+}
+
+private fun LauncherViewModel.shaderPackManager(): ShaderPackManager {
+    val game = if (contentTarget.value != null) contentGameDir() else null
+    return if (game != null) ShaderPackManager(game) else core.shaderPacks()
+}
+
+private fun LauncherViewModel.refreshResourcePacksIn(dir: Path, source: String) {
+    scope.launch {
+        try {
+            val packs = withContext(Dispatchers.IO) {
+                resourcePackManager().list(dir, source)
+            }
+            _resourcePacks.value = packs
+            _status.value = I18n.t("status.resource_packs_scanned", packs.size)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_resource_packs_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
+private fun LauncherViewModel.refreshShaderPacksIn(dir: Path, source: String) {
+    scope.launch {
+        try {
+            val packs = withContext(Dispatchers.IO) {
+                shaderPackManager().list(dir, source)
+            }
+            _shaderPacks.value = packs
+            _status.value = I18n.t("status.shader_packs_scanned", packs.size)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_shader_packs_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
+
 @PublishedApi
 internal fun LauncherViewModel.contentSourceLabelFor(dir: java.nio.file.Path, subDirName: String): String {
     if (dir == config.getWorkDir().resolve(subDirName)) return "全局"
@@ -50,6 +88,22 @@ internal fun LauncherViewModel.contentSourceLabelFor(dir: java.nio.file.Path, su
 }
 
 // ============ 世界管理 ============
+
+/** 数据包页只列出当前内容目标里的存档。 */
+fun LauncherViewModel.refreshContentWorlds() {
+    val saves = contentGameDir()?.resolve("saves") ?: return
+    scope.launch {
+        try {
+            val list = withContext(Dispatchers.IO) {
+                core.worlds().listWorlds(saves, saves.parent?.fileName?.toString() ?: "")
+            }
+            _contentWorlds.value = list
+            _status.value = I18n.t("status.worlds_scanned", list.size)
+        } catch (e: Throwable) {
+            _status.value = I18n.t("status.scan_worlds_failed", e.message ?: I18n.t("common.unknown"))
+        }
+    }
+}
 
 fun LauncherViewModel.refreshWorlds() {
     scope.launch {
@@ -481,6 +535,11 @@ fun LauncherViewModel.openRecordingsDir() {
 // ============ 资源包 ============
 
 fun LauncherViewModel.refreshResourcePacks() {
+    if (contentTarget.value != null) {
+        val game = contentGameDir() ?: return
+        refreshResourcePacksIn(game.resolve("resourcepacks"), game.fileName?.toString() ?: "")
+        return
+    }
     scope.launch {
         try {
             val list = withContext(Dispatchers.IO) {
@@ -515,7 +574,7 @@ fun LauncherViewModel.refreshResourcePacks() {
                 for (dir in dirs) {
                     try {
                         val sourceLabel = contentSourceLabelFor(dir, "resourcepacks")
-                        val part = core.resourcePacks().list(dir, sourceLabel)
+                        val part = resourcePackManager().list(dir, sourceLabel)
                         for (p in part) {
                             val key = "$dir/${p.name}"
                             if (seen.add(key)) all.add(p)
@@ -543,7 +602,7 @@ fun LauncherViewModel.refreshResourcePacks() {
 fun LauncherViewModel.enableResourcePack(pack: ResourcePackManager.Pack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.resourcePacks().enable(pack.name) }
+            withContext(Dispatchers.IO) { resourcePackManager().enable(pack.name) }
             _status.value = I18n.t("status.resource_pack_enabled", pack.name)
             refreshResourcePacks()
         } catch (e: Throwable) {
@@ -555,7 +614,7 @@ fun LauncherViewModel.enableResourcePack(pack: ResourcePackManager.Pack) {
 fun LauncherViewModel.disableResourcePack(pack: ResourcePackManager.Pack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.resourcePacks().disable(pack.name) }
+            withContext(Dispatchers.IO) { resourcePackManager().disable(pack.name) }
             _status.value = I18n.t("status.resource_pack_disabled", pack.name)
             refreshResourcePacks()
         } catch (e: Throwable) {
@@ -567,7 +626,7 @@ fun LauncherViewModel.disableResourcePack(pack: ResourcePackManager.Pack) {
 fun LauncherViewModel.deleteResourcePack(pack: ResourcePackManager.Pack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.resourcePacks().delete(pack) }
+            withContext(Dispatchers.IO) { resourcePackManager().delete(pack) }
             _status.value = I18n.t("status.resource_pack_deleted", pack.name)
             refreshResourcePacks()
         } catch (e: Throwable) {
@@ -582,7 +641,7 @@ fun LauncherViewModel.importResourcePack(filePath: String) {
         try {
             val fileName = withContext(Dispatchers.IO) {
                 val src = java.nio.file.Paths.get(filePath)
-                val targetDir = config.getWorkDir().resolve("resourcepacks")
+                val targetDir = resourcePackManager().resourcePacksDir
                 java.nio.file.Files.createDirectories(targetDir)
                 val target = targetDir.resolve(src.fileName)
                 java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
@@ -604,7 +663,7 @@ fun LauncherViewModel.batchEnableResourcePacks(packs: List<ResourcePackManager.P
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.resourcePacks().enable(pack.name)
+                        resourcePackManager().enable(pack.name)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -628,7 +687,7 @@ fun LauncherViewModel.batchDisableResourcePacks(packs: List<ResourcePackManager.
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.resourcePacks().disable(pack.name)
+                        resourcePackManager().disable(pack.name)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -652,7 +711,7 @@ fun LauncherViewModel.batchDeleteResourcePacks(packs: List<ResourcePackManager.P
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.resourcePacks().delete(pack)
+                        resourcePackManager().delete(pack)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -671,6 +730,11 @@ fun LauncherViewModel.batchDeleteResourcePacks(packs: List<ResourcePackManager.P
 // ============ 光影包 ============
 
 fun LauncherViewModel.refreshShaderPacks() {
+    if (contentTarget.value != null) {
+        val game = contentGameDir() ?: return
+        refreshShaderPacksIn(game.resolve("shaderpacks"), game.fileName?.toString() ?: "")
+        return
+    }
     scope.launch {
         try {
             val list = withContext(Dispatchers.IO) {
@@ -704,7 +768,7 @@ fun LauncherViewModel.refreshShaderPacks() {
                 for (dir in dirs) {
                     try {
                         val sourceLabel = contentSourceLabelFor(dir, "shaderpacks")
-                        val part = core.shaderPacks().list(dir, sourceLabel)
+                        val part = shaderPackManager().list(dir, sourceLabel)
                         for (p in part) {
                             val key = "$dir/${p.name}"
                             if (seen.add(key)) all.add(p)
@@ -732,7 +796,7 @@ fun LauncherViewModel.refreshShaderPacks() {
 fun LauncherViewModel.enableShaderPack(pack: ShaderPackManager.ShaderPack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.shaderPacks().enable(pack.name) }
+            withContext(Dispatchers.IO) { shaderPackManager().enable(pack.name) }
             _status.value = I18n.t("status.shader_pack_enabled", pack.name)
             refreshShaderPacks()
         } catch (e: Throwable) {
@@ -744,7 +808,7 @@ fun LauncherViewModel.enableShaderPack(pack: ShaderPackManager.ShaderPack) {
 fun LauncherViewModel.disableShaderPack(pack: ShaderPackManager.ShaderPack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.shaderPacks().disable(pack.name) }
+            withContext(Dispatchers.IO) { shaderPackManager().disable(pack.name) }
             _status.value = I18n.t("status.shader_pack_disabled", pack.name)
             refreshShaderPacks()
         } catch (e: Throwable) {
@@ -756,7 +820,7 @@ fun LauncherViewModel.disableShaderPack(pack: ShaderPackManager.ShaderPack) {
 fun LauncherViewModel.deleteShaderPack(pack: ShaderPackManager.ShaderPack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.shaderPacks().delete(pack) }
+            withContext(Dispatchers.IO) { shaderPackManager().delete(pack) }
             _status.value = I18n.t("status.shader_pack_deleted", pack.name)
             refreshShaderPacks()
         } catch (e: Throwable) {
@@ -771,7 +835,7 @@ fun LauncherViewModel.importShaderPack(filePath: String) {
         try {
             val fileName = withContext(Dispatchers.IO) {
                 val src = java.nio.file.Paths.get(filePath)
-                val targetDir = config.getWorkDir().resolve("shaderpacks")
+                val targetDir = shaderPackManager().shaderPacksDir
                 java.nio.file.Files.createDirectories(targetDir)
                 val target = targetDir.resolve(src.fileName)
                 java.nio.file.Files.copy(src, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
@@ -793,7 +857,7 @@ fun LauncherViewModel.batchEnableShaderPacks(packs: List<ShaderPackManager.Shade
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.shaderPacks().enable(pack.name)
+                        shaderPackManager().enable(pack.name)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -817,7 +881,7 @@ fun LauncherViewModel.batchDisableShaderPacks(packs: List<ShaderPackManager.Shad
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.shaderPacks().disable(pack.name)
+                        shaderPackManager().disable(pack.name)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -841,7 +905,7 @@ fun LauncherViewModel.batchDeleteShaderPacks(packs: List<ShaderPackManager.Shade
             withContext(Dispatchers.IO) {
                 for (pack in packs) {
                     try {
-                        core.shaderPacks().delete(pack)
+                        shaderPackManager().delete(pack)
                         ok++
                     } catch (t: Throwable) {
                         fail++
@@ -861,7 +925,7 @@ fun LauncherViewModel.batchDeleteShaderPacks(packs: List<ShaderPackManager.Shade
 fun LauncherViewModel.setActiveShaderPack(pack: ShaderPackManager.ShaderPack) {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.shaderPacks().setActive(pack) }
+            withContext(Dispatchers.IO) { shaderPackManager().setActive(pack) }
             _status.value = I18n.t("status.shader_pack_applied", pack.name)
             refreshShaderPacks()
         } catch (e: Throwable) {
@@ -874,7 +938,7 @@ fun LauncherViewModel.setActiveShaderPack(pack: ShaderPackManager.ShaderPack) {
 fun LauncherViewModel.clearActiveShaderPack() {
     scope.launch {
         try {
-            withContext(Dispatchers.IO) { core.shaderPacks().clearActive() }
+            withContext(Dispatchers.IO) { shaderPackManager().clearActive() }
             _status.value = I18n.t("status.shader_pack_cleared")
             refreshShaderPacks()
         } catch (e: Throwable) {
@@ -1014,6 +1078,10 @@ fun LauncherViewModel.revealProjection(item: ManagedProjection) {
 }
 
 private fun LauncherViewModel.projectionDirs(): List<Path> {
+    if (contentTarget.value != null) {
+        val game = contentGameDir() ?: return emptyList()
+        return listOf(game.resolve("schematics"))
+    }
     val dirs = mutableListOf<Path>()
     dirs.add(config.getWorkDir().resolve("schematics"))
     for (mcDir in com.pmcl.core.version.VersionManager.detectAllMinecraftVersionsDirs()) {
@@ -1037,6 +1105,10 @@ private fun LauncherViewModel.projectionDirs(): List<Path> {
 }
 
 private fun LauncherViewModel.projectionImportDir(): Path {
+    if (contentTarget.value != null) {
+        val game = contentGameDir()
+        if (game != null) return VersionGameFiles.directory(game, VersionGameFiles.SCHEMATICS)
+    }
     val versionId = _selectedVersion.value
     if (!versionId.isNullOrBlank()) {
         try {
@@ -1058,12 +1130,12 @@ private fun projectionSize(bytes: Long): String {
 
 /** 在系统文件管理中打开 shaderpacks 目录 */
 fun LauncherViewModel.openShaderPacksDir() {
-    openDir(core.shaderPacks().shaderPacksDir.toFile())
+    openDir(shaderPackManager().shaderPacksDir.toFile())
 }
 
 /** 在系统文件管理中打开 resourcepacks 目录 */
 fun LauncherViewModel.openResourcePacksDir() {
-    openDir(core.resourcePacks().resourcePacksDir.toFile())
+    openDir(resourcePackManager().resourcePacksDir.toFile())
 }
 
 /** 在系统文件管理中打开 screenshots 目录 */

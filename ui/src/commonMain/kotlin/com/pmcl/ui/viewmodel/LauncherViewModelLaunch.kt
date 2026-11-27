@@ -624,7 +624,7 @@ fun LauncherViewModel.launch(
                     options.add(LauncherViewModel.CompatOption(
                         title = "前往龙芯开源社区下载 JDK",
                         description = "打开浏览器访问龙芯开源社区，下载 LoongArch64 版 JDK\n" +
-                                "安装后 PMCL 会自动检测并使用",
+                                "安装后 Proxima ML 会自动检测并使用",
                         action = {
                             try {
                                 val url = "https://www.loongnix.cn/zh/api/java/"
@@ -667,7 +667,7 @@ fun LauncherViewModel.launch(
                     options.add(LauncherViewModel.CompatOption(
                         title = "前往 Adoptium 下载 RISC-V JDK",
                         description = "打开浏览器访问 Adoptium，下载 RISC-V 64 版 JDK\n" +
-                                "安装后 PMCL 会自动检测并使用",
+                                "安装后 Proxima ML 会自动检测并使用",
                         action = {
                             try {
                                 val url = "https://adoptium.net/temurin/releases/?version=17&arch=riscv64"
@@ -754,7 +754,7 @@ fun LauncherViewModel.launch(
                 // 应用内下载 Mojang 清单中的 mac-os（x86_64）Java 8（Apple Silicon 强制 Rosetta）
                 options.add(0, LauncherViewModel.CompatOption(
                     title = "自动下载 x86_64 Java 8（Rosetta）",
-                    description = "通过 PMCL 下载官方清单中的 macOS x86_64 Java 8，\n"
+                    description = "通过 Proxima ML 下载官方清单中的 macOS x86_64 Java 8，\n"
                             + "并用现代 GLFW 修复后以 Rosetta 启动（适合 1.13–1.16）",
                     action = { downloadX86Java8AndLaunch(versionId, snapDir, snapInfo, snapAccount, kernelId) }
                 ))
@@ -769,7 +769,7 @@ fun LauncherViewModel.launch(
 
                 options.add(LauncherViewModel.CompatOption(
                     title = "浏览器安装 x86_64 Java 8",
-                    description = "打开浏览器下载 x86_64 版本的 Java 8\n安装后 PMCL 会自动检测并使用（Apple Silicon 需 Rosetta）",
+                    description = "打开浏览器下载 x86_64 版本的 Java 8\n安装后 Proxima ML 会自动检测并使用（Apple Silicon 需 Rosetta）",
                     action = {
                         try {
                             val url = "https://adoptium.net/temurin/releases/?version=8&arch=x64"

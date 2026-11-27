@@ -90,6 +90,30 @@ public final class GameDirResolver {
         return resolveGameDir(versionId, null);
     }
 
+    /**
+     * 内容管理查看目录时用。只返回路径，不创建目录，也不把共享目录里的文件灌进去。
+     */
+    public Path peekGameDir(String versionId) {
+        requireSafeVersionId(versionId);
+        if (preferences != null) {
+            Path custom = VersionSettings.parseGameDir(preferences.getVersionSettings(versionId).getGameDir());
+            if (custom != null) return custom;
+        }
+        Path jsonPath = findVersionJson(versionId);
+        Path versionDir = jsonPath != null ? jsonPath.getParent() : null;
+        Path root = null;
+        if (versionDir != null) {
+            Path versionsDir = versionDir.getParent();
+            if (versionsDir != null) root = versionsDir.getParent();
+        }
+        if (root == null) root = config.getWorkDir();
+        if (versionDir != null && isSelfContainedVersionDir(versionDir)) return versionDir;
+        if (preferences != null && preferences.isVersionIsolation()) {
+            return isolatedInstanceDir(versionId);
+        }
+        return root;
+    }
+
     /** {@code resolveGameDir(versionId)/mods} */
     public Path resolveModsDir(String versionId) {
         return resolveGameDir(versionId).resolve("mods");

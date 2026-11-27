@@ -73,7 +73,7 @@ fun ShaderPacksPage(vm: LauncherViewModel) {
 
     var showImportDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { if (packs.isEmpty()) vm.refreshShaderPacks() }
+    LaunchedEffect(Unit) { vm.refreshShaderPacks() }
 
     val filtered = remember(packs, query, sortBy, filterDisabled, filterActive, filterSource) {
         var list = if (query.isBlank()) packs

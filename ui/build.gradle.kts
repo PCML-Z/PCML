@@ -152,7 +152,7 @@ compose.desktop {
             )
 
             windows {
-                menuGroup = "PMCL"
+                menuGroup = "Proxima ML"
                 upgradeUuid = "7f5e9c8a-3b2d-4e1f-9a8c-1b6d5e4f7a2c"
                 iconFile.set(project.file("src/commonMain/resources/pmcl_icon.ico"))
             }
@@ -161,8 +161,10 @@ compose.desktop {
                 iconFile.set(project.file("src/commonMain/resources/pmcl.icns"))
                 infoPlist {
                     extraKeysRawXml = """
+                        <key>CFBundleDisplayName</key>
+                        <string>Proxima ML</string>
                         <key>NSLocalNetworkUsageDescription</key>
-                        <string>PMCL 需要访问本地网络，以检测 Minecraft 局域网世界并使用陶瓦联机创建或加入房间。</string>
+                        <string>Proxima ML 需要访问本地网络，以检测 Minecraft 局域网世界并使用陶瓦联机创建或加入房间。</string>
                     """.trimIndent()
                 }
             }

@@ -1046,6 +1046,24 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
 
+                val portraitMode by vm.portraitModeEnabled.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = portraitMode,
+                        onCheckedChange = { vm.setPortraitModeEnabled(it) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(I18n.t("settings.portrait_layout"), fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(I18n.t("settings.portrait_layout_desc"),
+                     style = MaterialTheme.typography.labelSmall,
+                     color = MaterialTheme.colorScheme.outline)
+
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+
                 // 无边框窗口模式
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Switch(
@@ -1252,9 +1270,7 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
 
         if (sectionId == "about") {
-        ReleaseAnnouncementsCard(vm)
-        Spacer(Modifier.height(12.dp))
-        AboutCard(vm)
+            AboutScreen(vm)
         }
 
         if (sectionId == "feedback") {
@@ -1610,8 +1626,8 @@ private fun ReleaseAnnouncementsCard(vm: LauncherViewModel) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         I18n.t("about.announcements"),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         I18n.t("about.announcements_source", repo),
@@ -1733,123 +1749,75 @@ private fun ReleaseAnnouncementItem(
 }
 
 @Composable
-private fun AboutCard(vm: LauncherViewModel) {
-    Card(Modifier.fillMaxWidth().glassCardBorder(), colors = glassCardColors(), elevation = glassCardElevation()) {
-        Column(Modifier.padding(16.dp)) {
-            // === 头部：Logo + 名称 + 版本 ===
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Image(
-                    painter = painterResource("pmcl_icon.png"),
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
-                )
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(I18n.t("about.title"), style = MaterialTheme.typography.titleMedium,
-                         fontWeight = FontWeight.Bold)
-                    Text(I18n.t("about.version", vm.core.launcherVersion()),
-                         style = MaterialTheme.typography.labelSmall,
-                         color = MaterialTheme.colorScheme.outline)
-                }
-            }
+private fun AboutScreen(vm: LauncherViewModel) {
+    val portrait = com.pmcl.ui.animation.LocalPortrait.current
+    Column(verticalArrangement = Arrangement.spacedBy(if (portrait) 18.dp else 22.dp)) {
+        AboutIdentity(vm)
+        AboutBlock(I18n.t("about.version_info")) { VersionInfoBlock() }
+        ReleaseAnnouncementsCard(vm)
+        AboutBlock(I18n.t("about.tech_stack")) { DependencyTable(techStackDeps()) }
+        AboutBlock(I18n.t("about.open_source")) { DependencyTable(openSourceDeps()) }
+        Text(
+            I18n.t("about.copyright"),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
+}
 
-            Spacer(Modifier.height(20.dp))
-            VersionInfoBlock()
-
-            Spacer(Modifier.height(12.dp))
-            Text(I18n.t("about.description"),
-                 style = MaterialTheme.typography.bodySmall)
-
-            // === 主要功能：4 列分组 ===
-            Spacer(Modifier.height(16.dp))
-            Text(I18n.t("about.features"), style = MaterialTheme.typography.labelMedium,
-                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FeatureColumn(
-                    title = I18n.t("about.features.core"),
-                    items = listOf(
-                        I18n.t("about.feat.account"),
-                        I18n.t("about.feat.versions"),
-                        I18n.t("about.feat.modloaders"),
-                        I18n.t("about.feat.presets")
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-                FeatureColumn(
-                    title = I18n.t("about.features.content"),
-                    items = listOf(
-                        I18n.t("about.feat.market"),
-                        I18n.t("about.feat.contents"),
-                        I18n.t("about.feat.config")
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-                FeatureColumn(
-                    title = I18n.t("about.features.tools"),
-                    items = listOf(
-                        I18n.t("about.feat.saves"),
-                        I18n.t("about.feat.nbt"),
-                        I18n.t("about.feat.crash"),
-                        I18n.t("about.feat.java")
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-                FeatureColumn(
-                    title = I18n.t("about.features.extensions"),
-                    items = listOf(
-                        I18n.t("about.feat.multiplayer"),
-                        I18n.t("about.feat.friends"),
-                        I18n.t("about.feat.video"),
-                        I18n.t("about.feat.music"),
-                        I18n.t("about.feat.plugins"),
-                        I18n.t("about.feat.news"),
-                        I18n.t("about.feat.terminal")
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // === 开发者列表 ===
-            Spacer(Modifier.height(16.dp))
+@Composable
+private fun AboutIdentity(vm: LauncherViewModel) {
+    val info = remember { com.pmcl.core.LauncherBuildInfo.load() }
+    val channel = if (info.channel() == "release") {
+        I18n.t("about.ver.channel.release")
+    } else {
+        I18n.t("about.ver.channel.dev")
+    }
+    Column {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+            painter = painterResource("pmcl_icon.png"),
+            contentDescription = null,
+            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(16.dp))
+        )
+        Spacer(Modifier.width(14.dp))
+        Column {
             Text(
-                I18n.t("about.developers"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
+                I18n.t("about.title"),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
             )
-            Spacer(Modifier.height(8.dp))
-            DeveloperList()
-
-            // === 技术栈 ===
-            Spacer(Modifier.height(16.dp))
             Text(
-                I18n.t("about.tech_stack"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
+                I18n.t("about.version", vm.core.launcherVersion()),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(8.dp))
-            DependencyTable(techStackDeps())
-
-            // === 引用开源项目 ===
-            Spacer(Modifier.height(16.dp))
             Text(
-                I18n.t("about.open_source"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
+                channel,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline
             )
-            Spacer(Modifier.height(8.dp))
-            DependencyTable(openSourceDeps())
-
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(Modifier.height(8.dp))
-            Text(I18n.t("about.copyright"),
-                 style = MaterialTheme.typography.labelSmall,
-                 color = MaterialTheme.colorScheme.outline)
         }
+    }
+    Spacer(Modifier.height(10.dp))
+    Text(
+        I18n.t("about.description"),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    }
+}
+
+@Composable
+private fun AboutBlock(title: String, content: @Composable () -> Unit) {
+    Column {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(Modifier.height(8.dp))
+        content()
     }
 }
 
@@ -1954,6 +1922,7 @@ private fun VersionInfoBlock() {
         I18n.t("about.ver.channel.dev")
     }
     val rows = listOf(
+        I18n.t("about.ver.kernel") to "${I18n.t("kernel.builtin")}(26082303A)",
         I18n.t("about.ver.framework") to info.framework(),
         I18n.t("about.ver.runtime") to info.runtime(),
         I18n.t("about.ver.channel") to channel,
@@ -1964,47 +1933,30 @@ private fun VersionInfoBlock() {
         I18n.t("about.ver.okhttp") to info.okHttpVersion(),
         I18n.t("about.ver.java") to info.javaVersion()
     )
-    Text(
-        I18n.t("about.version_info"),
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.Bold
-    )
-    Spacer(Modifier.height(12.dp))
-    rows.forEach { (label, value) ->
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(label, style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.width(24.dp))
-            Text(
-                value.ifBlank { unknown },
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-/** 关于卡片中的功能分组列 */
-@Composable
-private fun FeatureColumn(
-    title: String,
-    items: List<String>,
-    modifier: Modifier = Modifier
-) {
-    Column(modifier) {
-        Text(title, style = MaterialTheme.typography.labelSmall,
-             fontWeight = FontWeight.SemiBold,
-             color = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(4.dp))
-        items.forEach { f ->
-            Text("·  $f",
-                 style = MaterialTheme.typography.bodySmall,
-                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+            rows.forEach { (label, value) ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        value.ifBlank { unknown },
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.End,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -2016,146 +1968,6 @@ private data class TechDependency(
     val license: String,
     val url: String,
 )
-
-/** 开发者条目：头像 URL + 名称 + 职责 + 主页（可空） */
-private data class DeveloperEntry(
-    val name: String,
-    val roleKey: String,
-    val avatarUrl: String = "",
-    val url: String = "",
-)
-
-/** 关于卡片中的开发者列表 */
-@Composable
-private fun DeveloperList() {
-    val developers = listOf(
-        DeveloperEntry(
-            name = "HCS-Organization",
-            roleKey = "about.dev.hcs_organization.role",
-            avatarUrl = "https://github.com/HCS-Organization.png?size=128",
-            url = "https://github.com/HCS-Organization"
-        ),
-        DeveloperEntry(
-            name = "peddlejumper",
-            roleKey = "about.dev.peddlejumper.role",
-            avatarUrl = "https://github.com/peddlejumper.png?size=128",
-            url = "https://github.com/peddlejumper"
-        ),
-        DeveloperEntry(
-            name = "Forget me",
-            roleKey = "about.dev.forget_me.role",
-            avatarUrl = "https://github.com/peddlejumper2.png?size=128",
-            url = "https://github.com/peddlejumper2"
-        ),
-        DeveloperEntry(
-            name = "mtutu_1314",
-            roleKey = "about.dev.mtutu_1314.role",
-            avatarUrl = "https://github.com/matutu1314.png?size=128",
-            url = "https://github.com/matutu1314"
-        ),
-        DeveloperEntry(
-            name = "unnk叶",
-            roleKey = "about.dev.unnk_ye.role",
-            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70b153c4ab3.jpg?no_cache=1785777533"
-        ),
-        DeveloperEntry(
-            name = "I Miss You LING",
-            roleKey = "about.dev.i_miss_you_ling.role",
-            avatarUrl = "https://github.com/I-miss-you-LING.png?size=128",
-            url = "https://github.com/I-miss-you-LING"
-        ),
-        DeveloperEntry(
-            name = "ニー・ヌオリアン",
-            roleKey = "about.dev.sjgdnsk.role",
-            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70aeb2e9586.jpg?no_cache=1785776856"
-        ),
-        DeveloperEntry(
-            name = "kakun 小新",
-            roleKey = "about.dev.ninolian.role",
-            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70b04a20023.jpg?no_cache=1785777263"
-        ),
-        DeveloperEntry(
-            name = "LBSH",
-            roleKey = "about.dev.lbsh.role",
-            avatarUrl = "https://lash.simdif.com/images/public/sd_6a70958dbf4b5.png?no_cache=1785770424",
-            url = "https://lash.simdif.com"
-        ),
-        DeveloperEntry(
-            name = "@PMCL-Z团队",
-            roleKey = "about.dev.pmcl_z.role",
-            avatarUrl = "https://github.com/PCML-Z.png?size=128",
-            url = "https://github.com/PCML-Z"
-        ),
-        DeveloperEntry(
-            name = "hcslash审核",
-            roleKey = "about.dev.hcslash.role",
-            avatarUrl = "https://avatars.githubusercontent.com/u/187082976?s=128&v=4",
-            url = "https://github.com/hcslash"
-        ),
-    )
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-        tonalElevation = 0.dp
-    ) {
-        Column {
-            developers.forEachIndexed { index, dev ->
-                val hasLink = dev.url.isNotBlank()
-                val openUrl = {
-                    if (hasLink) {
-                        try {
-                            com.pmcl.core.web.WikiBrowser.open(dev.url)
-                        } catch (_: Throwable) {
-                        }
-                    }
-                }
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (hasLink) Modifier.clickable(onClick = openUrl)
-                            else Modifier
-                        )
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    DeveloperAvatar(url = dev.avatarUrl, name = dev.name)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            dev.name,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            I18n.t(dev.roleKey),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (hasLink) {
-                        Spacer(Modifier.width(12.dp))
-                        Icon(
-                            Icons.Filled.OpenInNew,
-                            contentDescription = dev.url,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-                if (index < developers.lastIndex) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun DeveloperAvatar(url: String, name: String) {
@@ -2176,18 +1988,18 @@ private fun DeveloperAvatar(url: String, name: String) {
     }
     val bmp = image
     if (bmp != null) {
-        Image(
+            Image(
             bitmap = bmp,
             contentDescription = name,
             modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .size(36.dp)
+                .clip(CircleShape)
         )
     } else {
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.size(40.dp)
+            shape = CircleShape,
+            modifier = Modifier.size(36.dp)
         ) {
             Icon(
                 Icons.Filled.Person,

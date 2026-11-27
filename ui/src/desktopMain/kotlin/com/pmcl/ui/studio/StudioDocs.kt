@@ -159,7 +159,7 @@ internal fun pickDocument(): Path? = try {
 internal fun pickSaveMindMap(): Path? = try {
     val chooser = JFileChooser()
     chooser.dialogTitle = I18n.t("studio.doc_mind_save")
-    chooser.fileFilter = FileNameExtensionFilter("PMCL Mind Map (*.pmclmm)", "pmclmm")
+    chooser.fileFilter = FileNameExtensionFilter("Proxima ML Mind Map (*.pmclmm)", "pmclmm")
     chooser.selectedFile = java.io.File("mindmap.pmclmm")
     if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
         var file = chooser.selectedFile

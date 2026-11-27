@@ -1,5 +1,5 @@
-                          PMCL 免责协议
-                    PMCL Disclaimer Agreement
+                          Proxima ML 免责协议
+                    Proxima ML Disclaimer Agreement
                           版本 1.0 / 2026
 
 版权所有 (C) 2026 peddlejumper
@@ -7,14 +7,14 @@ https://github.com/peddlejumper
 
 ========================================================================
 
-本免责协议(以下简称"本协议")旨在明确许可人(peddlejumper)就 PMCL
-(PMCL Minecraft Launcher)启动器(以下简称"本软件")的使用所承担的责任
+本免责协议(以下简称"本协议")旨在明确许可人(peddlejumper)就 Proxima ML
+(Proxima ML Minecraft Launcher)启动器(以下简称"本软件")的使用所承担的责任
 范围与免责情形。请您在使用本软件前仔细阅读本协议。
 
 通过下载、安装或使用本软件,即表示您已阅读、理解并同意接受本协议的全部
 条款。若您不同意任何条款,请立即停止使用并删除本软件。
 
-本协议与《PMCL 用户协议》及 PMCL 软件技术许可证 v1.1 同时适用,共同构成
+本协议与《Proxima ML 用户协议》及 Proxima ML 软件技术许可证 v1.1 同时适用,共同构成
 您与许可人之间的完整协议。
 
 ========================================================================
@@ -268,8 +268,8 @@ https://github.com/peddlejumper
 
 第 14 条 其他
 
-  14.1 本协议与《PMCL 用户协议》及 PMCL 软件技术许可证 v1.1 同时适用。
-       如各文件存在冲突,以 PMCL 软件技术许可证 v1.1 为准。
+  14.1 本协议与《Proxima ML 用户协议》及 Proxima ML 软件技术许可证 v1.1 同时适用。
+       如各文件存在冲突,以 Proxima ML 软件技术许可证 v1.1 为准。
 
   14.2 本协议的中文版本为权威版本。
 

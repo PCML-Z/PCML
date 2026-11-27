@@ -534,7 +534,7 @@ private fun formatElapsed(ms: Long): String = when {
 @Composable
 private fun TerminalWelcome(onInsert: (String) -> Unit, onRun: (String) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
-        Text("PMCL Terminal", style = mono.copy(color = TermText, fontSize = 22.sp, fontWeight = FontWeight.Light), modifier = Modifier.entrance(0))
+        Text("Proxima ML Terminal", style = mono.copy(color = TermText, fontSize = 22.sp, fontWeight = FontWeight.Light), modifier = Modifier.entrance(0))
         Text(I18n.t("terminal.welcome_hint"), style = mono.copy(color = TermMuted), modifier = Modifier.padding(top = 4.dp).entrance(1))
         Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth().height(72.dp)) {

@@ -253,6 +253,7 @@ private fun buildCategories(vm: LauncherViewModel, theme: ThemeState, recommende
                 if (v) { pref.setAlwaysShowScrollbars(false); theme.applyAlwaysShowScrollbars(false) }
             }
         ),
+        SettingItem.Toggle(t("settings.portrait_layout"), t("settings.portrait_layout_desc"), get = { pref.isPortraitModeEnabled() }, set = { vm.setPortraitModeEnabled(it) }),
         SettingItem.Toggle(t("settings.borderless_window"), t("settings.borderless_window_desc"), get = { pref.isBorderlessWindow() }, set = { pref.setBorderlessWindow(it) }),
         SettingItem.Toggle(t("settings.segmented_launch"), t("settings.segmented_launch_desc"), get = { pref.isUseSegmentedLaunchLayout() }, set = { pref.setUseSegmentedLaunchLayout(it) }),
         SettingItem.Toggle(t("settings.predictive_launch"), t("settings.predictive_launch_desc"), get = { pref.isPredictiveLaunch() }, set = { pref.setPredictiveLaunch(it) }),

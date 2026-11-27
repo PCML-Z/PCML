@@ -58,7 +58,7 @@ public final class SupportPackGenerator {
 
     private static String buildInfo(String versionId, Path workDir, Path gameDir, String extraInfo) {
         StringBuilder sb = new StringBuilder();
-        sb.append("PMCL support pack\n");
+        sb.append("Proxima ML support pack\n");
         sb.append("time=").append(Instant.now()).append('\n');
         sb.append("versionId=").append(nullToEmpty(versionId)).append('\n');
         sb.append("os.name=").append(sys("os.name")).append('\n');

@@ -203,7 +203,7 @@ fun main() = application {
     }
 
     val windowTitle = remember { pmclWindowTitle() }
-    val initialPortrait = vm.preferences.isPortraitLayout()
+    val initialPortrait = vm.preferences.isPortraitModeEnabled() && vm.preferences.isPortraitLayout()
     val state = rememberWindowState(
         width = if (initialPortrait) 480.dp else 1100.dp,
         height = if (initialPortrait) 820.dp else 700.dp,
@@ -273,13 +273,29 @@ fun main() = application {
         transparent = borderless
     ) {
         val portrait by vm.portraitLayout.collectAsState()
+        val portraitEnabled by vm.portraitModeEnabled.collectAsState()
         val portraitState = rememberUpdatedState(portrait)
+        val portraitEnabledState = rememberUpdatedState(portraitEnabled)
+        // 开关只决定能不能进竖屏。进不进仍看当前窗口高宽，不在这里改尺寸。
+        LaunchedEffect(portraitEnabled) {
+            if (!portraitEnabled) {
+                if (portraitState.value) vm.setPortraitLayout(false)
+                return@LaunchedEffect
+            }
+            if (window.width < 200 || window.height < 200) return@LaunchedEffect
+            val tall = windowIsPortrait(window.width, window.height, portraitState.value)
+            if (tall != portraitState.value) vm.setPortraitLayout(tall)
+        }
         DisposableEffect(Unit) {
             window.minimumSize = java.awt.Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
             val listener = object : ComponentAdapter() {
                 override fun componentResized(e: ComponentEvent?) {
                     if ((window.extendedState and Frame.ICONIFIED) != 0) return
                     if (window.width < 200 || window.height < 200) return
+                    if (!portraitEnabledState.value) {
+                        if (portraitState.value) vm.setPortraitLayout(false)
+                        return
+                    }
                     val tall = windowIsPortrait(window.width, window.height, portraitState.value)
                     if (tall != portraitState.value) vm.setPortraitLayout(tall)
                 }
@@ -416,7 +432,8 @@ fun main() = application {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
                         // 仅最大化时使用直角；任务中心是窗口内面板，不应改变窗口设计语言
-                        val tall = windowIsPortrait(window.width, window.height, portraitState.value)
+                        val tall = portraitEnabledState.value &&
+                            windowIsPortrait(window.width, window.height, portraitState.value)
                         window.shape = if (maximized) null
                         else roundWindow(window.width, window.height, tall)
                         // AWT 背景始终保持透明，让 Compose 内部透明渲染（视差/玻璃）生效
@@ -666,7 +683,7 @@ private fun readDarkThemePref(path: String): Boolean {
 private fun pmclWindowTitle(): String {
     val info = com.pmcl.core.LauncherBuildInfo.load()
     val version = info.binaryVersion()
-    val base = if (version.isBlank()) "PMCL" else "PMCL $version"
+    val base = if (version.isBlank()) "Proxima ML" else "Proxima ML $version"
     return if (info.channel() == "release") base else "$base (非发行版本)"
 }
 

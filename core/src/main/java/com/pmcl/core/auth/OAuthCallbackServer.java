@@ -75,7 +75,7 @@ public final class OAuthCallbackServer implements AutoCloseable {
         // 安全修复：所有回调类型都必须校验 state，防止本地攻击者伪造 error 回调中断登录
         if (!expectedState.equals(state)) {
             String responseHtml = htmlPage("授权失败", "#F44336",
-                    "OAuth state 校验失败，请返回 PMCL 重试。");
+                    "OAuth state 校验失败，请返回 Proxima ML 重试。");
             if (completed.compareAndSet(false, true)) {
                 codeFuture.completeExceptionally(
                         new RuntimeException("OAuth state mismatch（可能的回调伪造）"));
@@ -94,7 +94,7 @@ public final class OAuthCallbackServer implements AutoCloseable {
             // state 已在上方统一校验通过
             if (completed.compareAndSet(false, true)) {
                 responseHtml = htmlPage("授权成功", "#4CAF50",
-                        "请返回 PMCL 启动器，登录即将完成。");
+                        "请返回 Proxima ML，登录即将完成。");
                 codeFuture.complete(code);
             } else {
                 responseHtml = htmlPage("已处理", "#4CAF50", "授权码已接收，请返回启动器。");

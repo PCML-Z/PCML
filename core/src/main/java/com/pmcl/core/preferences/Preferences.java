@@ -34,6 +34,7 @@ public final class Preferences {
     private int monetSeedColor = -1;      // 莫奈取色最后成功的种子色，启动时立即应用避免截图污染
     private boolean borderlessWindow = true; // 无边框窗口模式（自定义标题栏）
     private boolean portraitLayout = false; // 竖屏窗口：窄而高，底部胶囊导航
+    private boolean portraitModeEnabled = true; // 竖屏测试开关。关闭后拖动窗口也不切换布局
     private boolean alwaysShowScrollbars = false; // 始终显示滚动条
     private boolean showScrollbarsOnScroll = false; // 仅滑动时显示滚动条
     private boolean parseKuaishou = false; // 音乐链接：快手，默认关闭
@@ -298,6 +299,8 @@ public final class Preferences {
     public synchronized void setBorderlessWindow(boolean v) { borderlessWindow = v; scheduleSave(); }
     public synchronized boolean isPortraitLayout() { return portraitLayout; }
     public synchronized void setPortraitLayout(boolean v) { portraitLayout = v; scheduleSave(); }
+    public synchronized boolean isPortraitModeEnabled() { return portraitModeEnabled; }
+    public synchronized void setPortraitModeEnabled(boolean v) { portraitModeEnabled = v; scheduleSave(); }
     public synchronized boolean isAlwaysShowScrollbars() { return alwaysShowScrollbars; }
     public synchronized void setAlwaysShowScrollbars(boolean v) { alwaysShowScrollbars = v; scheduleSave(); }
     public synchronized boolean isShowScrollbarsOnScroll() { return showScrollbarsOnScroll; }
@@ -1336,6 +1339,7 @@ public final class Preferences {
             predictiveLaunch = loadBool(o, "predictiveLaunch", true);
             borderlessWindow = loadBool(o, "borderlessWindow", true);
             portraitLayout = loadBool(o, "portraitLayout", false);
+            portraitModeEnabled = loadBool(o, "portraitModeEnabled", true);
             alwaysShowScrollbars = loadBool(o, "alwaysShowScrollbars", false);
             showScrollbarsOnScroll = loadBool(o, "showScrollbarsOnScroll", false);
             parseKuaishou = loadBool(o, "parseKuaishou", false);
@@ -1815,6 +1819,7 @@ public final class Preferences {
         o.addProperty("predictiveLaunch", predictiveLaunch);
         o.addProperty("borderlessWindow", borderlessWindow);
         o.addProperty("portraitLayout", portraitLayout);
+        o.addProperty("portraitModeEnabled", portraitModeEnabled);
         o.addProperty("alwaysShowScrollbars", alwaysShowScrollbars);
         o.addProperty("showScrollbarsOnScroll", showScrollbarsOnScroll);
         o.addProperty("parseKuaishou", parseKuaishou);

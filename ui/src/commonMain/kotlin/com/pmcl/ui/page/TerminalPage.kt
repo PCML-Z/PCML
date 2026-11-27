@@ -83,7 +83,7 @@ fun TerminalPage(vm: LauncherViewModel, modifier: Modifier = Modifier) {
     LaunchedEffect(Unit) {
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))
         lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
-        lines.add(TerminalLine(nextSeq(), "|          PMCL Terminal  v3.0.0            |", LineType.BANNER))
+        lines.add(TerminalLine(nextSeq(), "|        Proxima ML Terminal  v3.0.0        |", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "|   Minecraft Launcher - Shell Mode         |", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "+===========================================+", LineType.BANNER))
         lines.add(TerminalLine(nextSeq(), "", LineType.EMPTY))

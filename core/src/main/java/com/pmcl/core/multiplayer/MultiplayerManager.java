@@ -399,7 +399,7 @@ public final class MultiplayerManager {
                     fireRoomCreated(currentRoomCode, localMcAddr);
                     if (onProgress != null) onProgress.accept("✓ 房间网络已就绪，房间码：" + currentRoomCode
                         + "\n⚠ 重要提示："
-                        + "\n1. 请保持 PMCL 运行，不要点击「离开房间」"
+                        + "\n1. 请保持 Proxima ML 运行，不要点击「离开房间」"
                         + "\n2. 现在可以让朋友在另一台设备上输入此房间码加入");
                 })
                 .exceptionally(e -> {

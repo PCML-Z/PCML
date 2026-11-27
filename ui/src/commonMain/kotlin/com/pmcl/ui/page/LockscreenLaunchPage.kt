@@ -118,7 +118,7 @@ fun LockscreenLaunchPage(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "PMCL · Minecraft Launcher",
+                    "Proxima ML",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
@@ -243,7 +243,7 @@ fun LockscreenLaunchPage(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "PMCL",
+                            "Proxima ML",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )

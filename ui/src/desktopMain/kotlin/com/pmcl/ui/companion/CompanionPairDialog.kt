@@ -424,7 +424,7 @@ fun CompanionPairDialog(
                 ) {
                     Text(
                         "在手机端打开 PMCL，输入下方配对码完成配对，" +
-                            "即可远程控制桌面端 PMCL 启动游戏、浏览模组、好友聊天。",
+                            "即可远程控制桌面端 Proxima ML 启动游戏、浏览模组、好友聊天。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

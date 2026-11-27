@@ -33,7 +33,7 @@ class PairingManager(private val dataFile: Path) {
         /** true=绑定 0.0.0.0（局域网可达）；false=仅 127.0.0.1（本机） */
         var exposeLan: Boolean = true,
         var pairingCode: String = generatePairingCode(),
-        var serverName: String = "PMCL Desktop",
+        var serverName: String = "Proxima ML",
         var devices: MutableList<PairedDevice> = mutableListOf()
     )
 
@@ -120,7 +120,7 @@ class PairingManager(private val dataFile: Path) {
                     // 缺省 true：保持旧行为（手机伴随需 LAN）；用户可关掉收紧攻击面
                     exposeLan = !obj.has("exposeLan") || obj.get("exposeLan").asBoolean,
                     pairingCode = pairingCode,
-                    serverName = if (obj.has("serverName")) obj.get("serverName").asString else "PMCL Desktop",
+                    serverName = if (obj.has("serverName")) obj.get("serverName").asString else "Proxima ML",
                     devices = mutableListOf()
                 )
                 if (obj.has("devices")) {

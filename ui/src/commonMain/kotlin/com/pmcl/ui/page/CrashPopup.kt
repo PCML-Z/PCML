@@ -508,7 +508,7 @@ private fun pickSupportPackPath(versionId: String): String? {
     val safe = versionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
     val ts = SimpleDateFormat("yyyyMMdd-HHmmss").format(Date())
     val fd = FileDialog(null as Frame?, I18n.t("crash.pack.save"), FileDialog.SAVE)
-    fd.file = "PMCL-Support-$safe-$ts.zip"
+    fd.file = "ProximaML-Support-$safe-$ts.zip"
     fd.isVisible = true
     val dir = fd.directory ?: return null
     val file = fd.file ?: return null

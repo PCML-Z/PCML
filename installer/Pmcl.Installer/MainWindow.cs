@@ -54,7 +54,7 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "PMCL 安装器";
+        Title = "Proxima ML 安装器";
         Width = 720;
         Height = 460;
         CanResize = false;
@@ -175,7 +175,7 @@ public sealed class MainWindow : Window
             Spacing = 2,
             Children =
             {
-                Tokens.Text("PMCL", 16, Tokens.Ink, FontWeight.SemiBold),
+                Tokens.Text("Proxima ML", 16, Tokens.Ink, FontWeight.SemiBold),
                 Tokens.Text("安装器", 11, Tokens.InkMuted)
             }
         };
@@ -312,7 +312,7 @@ public sealed class MainWindow : Window
                 break;
 
             case Phase.Ready:
-                _headline.Text = headline ?? (_asset is null ? "准备安装" : "找到 PMCL " + _asset.Version);
+                _headline.Text = headline ?? (_asset is null ? "准备安装" : "找到 Proxima ML " + _asset.Version);
                 _sub.Text = sub ?? (_asset is null
                     ? "会挑一个适合本机的安装包"
                     : _platform + " · 安装包 " + ProgressText.Bytes(_asset.Size));
@@ -346,7 +346,7 @@ public sealed class MainWindow : Window
 
             case Phase.Done:
                 _headline.Text = headline ?? "装好了";
-                _sub.Text = sub ?? "现在可以从应用列表打开 PMCL";
+                _sub.Text = sub ?? "现在可以从应用列表打开 Proxima ML";
                 _percent.Text = "100%";
                 _bytes.Text = "";
                 _speed.Text = "";
@@ -429,7 +429,7 @@ public sealed class MainWindow : Window
         _platform = PlatformLabel(os, arch);
         if (os.Length == 0 || arch.Length == 0)
         {
-            SetPhase(Phase.Error, "这个系统装不了", "PMCL 支持 macOS、Windows 和 Linux");
+            SetPhase(Phase.Error, "这个系统装不了", "Proxima ML 支持 macOS、Windows 和 Linux");
             return;
         }
 
@@ -485,7 +485,8 @@ public sealed class MainWindow : Window
                     : "正在连接";
             }), asset.Size);
 
-            await ReleaseDownloader.DownloadAsync(_http, asset, dest, progress, token);
+            await ReleaseDownloader.DownloadAsync(_http, asset, dest, progress, token, source =>
+                _sub.Text = source + " · 下完会自动打开系统安装");
 
             SetPhase(Phase.Installing);
             await PackageInstall.RunAsync(dest, token);

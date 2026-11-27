@@ -102,7 +102,7 @@ fun KernelChoiceWindow(vm: LauncherViewModel, request: KernelLaunchRequest, them
     Window(
         onCloseRequest = { vm.cancelKernelLaunch() },
         icon = com.pmcl.ui.navigation.pmclWindowIcon(),
-        title = "PMCL ${I18n.t("kernel.choose_title")}",
+        title = "Proxima ML ${I18n.t("kernel.choose_title")}",
         state = state,
         undecorated = borderless,
         transparent = borderless

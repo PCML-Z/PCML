@@ -2514,7 +2514,7 @@ public final class LaunchProfileBuilder {
         // .replace 展开导致 access_token 泄露到进程命令行/日志。
         java.util.Map<String, String> placeholders = new java.util.HashMap<>();
         placeholders.put("${natives_directory}", effectiveNatives.toString());
-        placeholders.put("${launcher_name}", "PMCL");
+        placeholders.put("${launcher_name}", "Proxima ML");
         placeholders.put("${launcher_version}", "2.2a");
         placeholders.put("${classpath_separator}", System.getProperty("path.separator"));
         placeholders.put("${library_directory}", librariesDir.toString());
@@ -2538,7 +2538,7 @@ public final class LaunchProfileBuilder {
         placeholders.put("${clientid}", "");
         // auth_xuid：微软账号的 Xbox Live userHash（uhs）
         placeholders.put("${auth_xuid}", account != null && account.getXuid() != null ? account.getXuid() : "");
-        placeholders.put("${version_type}", "PMCL(HCS X Pro 2c;A260904-1)");
+        placeholders.put("${version_type}", "Proxima ML");
 
         java.util.regex.Matcher pm = PLACEHOLDER_PATTERN.matcher(arg);
         StringBuilder sb = new StringBuilder(arg.length() + 64);

@@ -70,7 +70,7 @@ fun ResourcePacksPage(vm: LauncherViewModel) {
     var showImportDialog by remember { mutableStateOf(false) }
     var detailPack by remember { mutableStateOf<ResourcePackManager.Pack?>(null) }
 
-    LaunchedEffect(Unit) { if (packs.isEmpty()) vm.refreshResourcePacks() }
+    LaunchedEffect(Unit) { vm.refreshResourcePacks() }
 
     val filtered = remember(packs, query, sortBy, filterDisabled, filterSource, filterFormat) {
         var list = if (query.isBlank()) packs

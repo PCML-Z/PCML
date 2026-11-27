@@ -52,6 +52,7 @@ object SecondaryNavRegistry {
         parentLabelKey = "nav.download",
         sections = listOf(
             SecondarySection("versions", "download.local_versions") { PmclIcons.Wrench },
+            SecondarySection("games", "download.local_games") { PmclIcons.Dataset },
             SecondarySection("market", "nav.market") { PmclIcons.Content },
             SecondarySection("queue", "nav.queue") { PmclIcons.Download },
             SecondarySection("wiki", "nav.wiki") { PmclIcons.Article },

@@ -483,7 +483,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
     Window(
         onCloseRequest = { requestClose() },
         icon = com.pmcl.ui.navigation.pmclWindowIcon(),
-        title = "PMCL Studio" + (if (windows.size > 1) " · " + windowLabel(windowId) else "") + (target?.let { " — " + it.name } ?: ""),
+        title = "Proxima ML Studio" + (if (windows.size > 1) " · " + windowLabel(windowId) else "") + (target?.let { " — " + it.name } ?: ""),
         state = state,
         undecorated = true,
         resizable = true,
@@ -521,7 +521,7 @@ fun StudioWindow(vm: LauncherViewModel, themeState: ThemeState, windowId: Int = 
                             // 标题栏
                             ChromeRow(40.dp, p.accent) {
                                 Box(Modifier.fillMaxHeight().then(drag).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                                    FlatText("PMCL Studio", color = Color.White, weight = FontWeight.SemiBold, size = 13)
+                                    FlatText("Proxima ML Studio", color = Color.White, weight = FontWeight.SemiBold, size = 13)
                                 }
                                 if (windows.size > 1) {
                                     StatusSegment(windowLabel(windowId), p.accentDeep)
@@ -1243,7 +1243,7 @@ private fun Welcome(
         (v + i).filter { favoriteKey(it) in favorites }.take(6)
     }
     Column(Modifier.fillMaxSize().background(p.editor).verticalScroll(rememberScrollState()).padding(40.dp)) {
-        FlatText("PMCL Studio", size = 34, weight = FontWeight.Light, modifier = Modifier.entrance(0))
+        FlatText("Proxima ML Studio", size = 34, weight = FontWeight.Light, modifier = Modifier.entrance(0))
         FlatText(I18n.t("studio.welcome"), color = p.muted, size = 13, modifier = Modifier.entrance(1))
         Spacer(Modifier.height(24.dp))
         Row(Modifier.fillMaxWidth().height(120.dp)) {

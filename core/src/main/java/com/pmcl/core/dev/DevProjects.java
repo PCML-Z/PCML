@@ -257,7 +257,7 @@ public final class DevProjects {
                     {
                         if (!PmclApp.IsHosted)
                         {
-                            _status.Text = "Start this app from PMCL after dotnet publish.";
+                            _status.Text = "Start this app from Proxima ML after dotnet publish.";
                             return;
                         }
                         try
@@ -349,7 +349,7 @@ public final class DevProjects {
                 + "plugin.name=" + prop(name) + "\n"
                 + "plugin.version=1.0.0\n"
                 + "plugin.author=" + prop(author()) + "\n"
-                + "plugin.description=PMCL plugin.\n"
+                + "plugin.description=Proxima ML plugin.\n"
                 + "plugin.api-version=1.8\n"
                 + "plugin.main-class=" + main + "\n"
                 + "plugin.license=MIT\n";
@@ -578,9 +578,9 @@ public final class DevProjects {
         String value = System.getProperty("user.name", "");
         if (value == null) value = "";
         value = value.strip().replace('\r', ' ').replace('\n', ' ');
-        if (value.isEmpty()) return "PMCL";
+        if (value.isEmpty()) return "Proxima ML";
         if (value.length() > 64) value = value.substring(0, 64).strip();
-        return value.isEmpty() ? "PMCL" : value;
+        return value.isEmpty() ? "Proxima ML" : value;
     }
 
     private static String xml(String value) {

@@ -253,7 +253,7 @@ public final class GitHubReleaseSyncChecker implements AutoCloseable {
             }
             SelfUpdater.UpdateInfo info = parseRelease(release);
             if (info == null) {
-                notifyError("Release 中没有可用的 PMCL 更新资产", null);
+                notifyError("Release 中没有可用的 Proxima ML 更新资产", null);
                 return;
             }
             restoreNormalInterval();

@@ -72,7 +72,7 @@ public final class PastebinClient {
     private static final int MAX_UPLOAD_CHARS = 1_500_000; // ~1.5MB 文本，防 OOM
 
     public String upload(String content, String name) throws IOException {
-        String safeName = (name == null || name.isBlank()) ? "PMCL Log" : name;
+        String safeName = (name == null || name.isBlank()) ? "Proxima ML Log" : name;
         if (content == null) content = "";
         if (content.length() > MAX_UPLOAD_CHARS) {
             // 保留尾部（崩溃栈通常在文件末尾）

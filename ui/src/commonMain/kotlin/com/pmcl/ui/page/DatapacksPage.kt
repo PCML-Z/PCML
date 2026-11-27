@@ -44,7 +44,7 @@ import com.pmcl.ui.viewmodel.disableDatapack
 import com.pmcl.ui.viewmodel.enableDatapack
 import com.pmcl.ui.viewmodel.importDatapack
 import com.pmcl.ui.viewmodel.openDatapacksDir
-import com.pmcl.ui.viewmodel.refreshWorlds
+import com.pmcl.ui.viewmodel.refreshContentWorlds
 import com.pmcl.ui.viewmodel.selectDatapackWorld
 import java.awt.FileDialog
 import java.awt.Frame
@@ -56,7 +56,7 @@ import java.io.FilenameFilter
  */
 @Composable
 fun DatapacksPage(vm: LauncherViewModel) {
-    val worlds by vm.worlds.collectAsState()
+    val worlds by vm.contentWorlds.collectAsState()
     val selectedWorld by vm.selectedDatapackWorld.collectAsState()
     val sw = selectedWorld
     val datapacks by vm.datapacks.collectAsState()
@@ -77,7 +77,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
     var showImportDialog by remember { mutableStateOf(false) }
     var detailPack by remember { mutableStateOf<DatapackManager.Datapack?>(null) }
 
-    LaunchedEffect(Unit) { if (worlds.isEmpty()) vm.refreshWorlds() }
+    LaunchedEffect(Unit) { vm.refreshContentWorlds() }
 
     val filteredWorlds = remember(worlds, worldQuery) {
         if (worldQuery.isBlank()) worlds
@@ -111,7 +111,7 @@ fun DatapacksPage(vm: LauncherViewModel) {
                 }
                 Spacer(Modifier.width(8.dp))
             }
-            OutlinedButton(onClick = { vm.refreshWorlds() }) {
+            OutlinedButton(onClick = { vm.refreshContentWorlds() }) {
                 Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(I18n.t("datapack.refresh_worlds"))
