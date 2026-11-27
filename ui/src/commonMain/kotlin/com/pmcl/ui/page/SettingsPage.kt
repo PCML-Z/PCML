@@ -168,7 +168,12 @@ fun SettingsPage(vm: LauncherViewModel, sectionId: String = "launcher") {
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp).pmclVerticalScroll(rememberScrollState())) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(if (com.pmcl.ui.animation.LocalPortrait.current) 0.dp else 16.dp)
+            .pmclVerticalScroll(rememberScrollState())
+    ) {
         TypewriterTitle(I18n.t(sectionTitleKey))
         Spacer(Modifier.height(16.dp))
 

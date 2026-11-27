@@ -1083,6 +1083,14 @@ class LauncherViewModel {
         themeState?.applyMaterialTheme(v)
     }
 
+    private val _portraitLayout = MutableStateFlow(preferences.isPortraitLayout())
+    val portraitLayout: StateFlow<Boolean> = _portraitLayout.asStateFlow()
+
+    fun setPortraitLayout(v: Boolean) {
+        _portraitLayout.value = v
+        preferences.setPortraitLayout(v)
+    }
+
     private val _liveWallpaperGlass = MutableStateFlow(preferences.isLiveWallpaperGlass())
     val liveWallpaperGlass: StateFlow<Boolean> = _liveWallpaperGlass.asStateFlow()
 
@@ -1126,8 +1134,9 @@ class LauncherViewModel {
     }
 
     // ===== 模组依赖安装 =====
-    @PublishedApi internal val _installingDeps = MutableStateFlow(false)
-    val installingDeps: StateFlow<Boolean> = _installingDeps.asStateFlow()
+    /** 正在走「含依赖」队列的文件。只锁这一份，其它下载按钮保持可点。 */
+    @PublishedApi internal val _installingDepFiles = MutableStateFlow<Set<String>>(emptySet())
+    val installingDepFiles: StateFlow<Set<String>> = _installingDepFiles.asStateFlow()
 
     @PublishedApi internal val _depInstallResult = MutableStateFlow<ModDependencyResolver.DependencyResult?>(null)
     val depInstallResult: StateFlow<ModDependencyResolver.DependencyResult?> = _depInstallResult.asStateFlow()

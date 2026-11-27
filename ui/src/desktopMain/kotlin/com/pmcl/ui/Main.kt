@@ -203,9 +203,10 @@ fun main() = application {
     }
 
     val windowTitle = remember { pmclWindowTitle() }
+    val initialPortrait = vm.preferences.isPortraitLayout()
     val state = rememberWindowState(
-        width = 1100.dp,
-        height = 700.dp,
+        width = if (initialPortrait) 480.dp else 1100.dp,
+        height = if (initialPortrait) 820.dp else 700.dp,
         position = WindowPosition.Aligned(Alignment.Center)
     )
     var windowHidden by remember { mutableStateOf(false) }
@@ -271,6 +272,21 @@ fun main() = application {
         undecorated = borderless,
         transparent = borderless
     ) {
+        val portrait by vm.portraitLayout.collectAsState()
+        val portraitState = rememberUpdatedState(portrait)
+        DisposableEffect(Unit) {
+            window.minimumSize = java.awt.Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
+            val listener = object : ComponentAdapter() {
+                override fun componentResized(e: ComponentEvent?) {
+                    if ((window.extendedState and Frame.ICONIFIED) != 0) return
+                    if (window.width < 200 || window.height < 200) return
+                    val tall = windowIsPortrait(window.width, window.height, portraitState.value)
+                    if (tall != portraitState.value) vm.setPortraitLayout(tall)
+                }
+            }
+            window.addComponentListener(listener)
+            onDispose { window.removeComponentListener(listener) }
+        }
         // 全局拖放：监听 .jar 文件拖入主窗口 → 触发 mod 拖放安装
         DisposableEffect(Unit) {
             val frame = window
@@ -345,7 +361,8 @@ fun main() = application {
             // 无边框模式下 clip 圆角，避免方形边缘盖住窗口 shape
             // 最大化时不裁剪，让背景填满屏幕直角
             // 优先级：自定义背景（图片/视频）> 视差背景
-            val bgModifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(14.dp))
+            val corner = windowCornerRadius(portrait)
+            val bgModifier = if (borderless && !isMaximized) Modifier.clip(RoundedCornerShape(corner))
                              else Modifier
             // 壁纸毛玻璃 / 材质霜面 / 自定义背景的具体绘制收在 WindowBackdrop 里，
             // 独立窗口（如公告窗口）复用同一套，观感与主窗口一致。
@@ -389,23 +406,19 @@ fun main() = application {
                     // 1. minimumSize 阻止 AWT pack 主动缩小
                     // 2. componentResized 监听异常缩小并恢复
                     // 3. Timer 周期检查（componentResized 在透明窗口首次 pack 时可能不触发）
-                    val minW = 900
-                    val minH = 600
-                    val targetW = 1100
-                    val targetH = 700
-                    window.minimumSize = java.awt.Dimension(minW, minH)
-                    // 首次强制设置目标尺寸，避免 pack 用过小的 preferredSize
+                    val box = windowBox(portraitState.value)
+                    val targetW = box.width
+                    val targetH = box.height
+                    window.minimumSize = java.awt.Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
+                    // 首次按当前布局落尺寸。竖屏不能被横屏的 1100×700 兜底盖回去。
                     window.setSize(targetW, targetH)
                     val updateShape = {
                         val maximized = window.extendedState == Frame.MAXIMIZED_BOTH
                         isMaximized = maximized
                         // 仅最大化时使用直角；任务中心是窗口内面板，不应改变窗口设计语言
+                        val tall = windowIsPortrait(window.width, window.height, portraitState.value)
                         window.shape = if (maximized) null
-                        else RoundRectangle2D.Double(
-                            0.0, 0.0,
-                            window.width.toDouble(), window.height.toDouble(),
-                            14.0, 14.0
-                        )
+                        else roundWindow(window.width, window.height, tall)
                         // AWT 背景始终保持透明，让 Compose 内部透明渲染（视差/玻璃）生效
                         window.background = java.awt.Color(0, 0, 0, 0)
                     }
@@ -417,8 +430,14 @@ fun main() = application {
                         if (state and Frame.ICONIFIED != 0) {
                             window.extendedState = state and Frame.ICONIFIED.inv()
                         }
-                        if (window.width < minW || window.height < minH) {
-                            window.setSize(targetW, targetH)
+                        window.minimumSize = java.awt.Dimension(WINDOW_MIN_W, WINDOW_MIN_H)
+                        if (window.width < WINDOW_MIN_W || window.height < WINDOW_MIN_H) {
+                            val box = windowBox(portraitState.value)
+                            val collapsed = window.width < 200 || window.height < 200
+                            window.setSize(
+                                if (collapsed) box.width else window.width.coerceAtLeast(WINDOW_MIN_W),
+                                if (collapsed) box.height else window.height.coerceAtLeast(WINDOW_MIN_H)
+                            )
                             updateShape()
                         }
                     }
@@ -466,7 +485,7 @@ fun main() = application {
                     modifier = Modifier.fillMaxSize().then(
                         // 仅最大化时不裁剪；任务中心展开期间继续保持窗口圆角
                         if (isMaximized) Modifier
-                        else Modifier.clip(RoundedCornerShape(14.dp))
+                        else Modifier.clip(RoundedCornerShape(corner))
                     ),
                     color = if (bgLayerOn || materialOn || liveGlassOn) Color.Transparent else MaterialTheme.colorScheme.surface,
                     tonalElevation = if (bgLayerOn || materialOn || liveGlassOn) 0.dp else 1.dp
@@ -475,22 +494,29 @@ fun main() = application {
                     if (materialOn) {
                         MaterialField(Modifier.fillMaxSize(), linesOnly = liveGlassOn)
                     }
-                    Column(Modifier.fillMaxSize()) {
-                        BorderlessTitleBar(
-                            title = windowTitle,
-                            onClose = ::exitApplication,
-                            isDragging = isDragging,
-                            vm = vm,
-                            searchFocusRequester = searchFocusRequester,
-                            onOpenCompanion = { showCompanionDialog.value = true },
-                            onOpenTaskCenter = { showTaskCenter = true },
-                            glassOn = glassOn && !materialOn && !liveGlassOn,
-                            materialOn = materialOn || liveGlassOn
-                        )
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
-                            App(vm, sharedThemeState)
+                    App(
+                        vm,
+                        sharedThemeState,
+                        searchFocusRequester,
+                        onOpenTaskCenter = { showTaskCenter = true },
+                        header = { framePortrait ->
+                            if (framePortrait) {
+                                PortraitWindowChrome(isDragging, ::exitApplication)
+                            } else {
+                                BorderlessTitleBar(
+                                    title = windowTitle,
+                                    onClose = ::exitApplication,
+                                    isDragging = isDragging,
+                                    vm = vm,
+                                    searchFocusRequester = searchFocusRequester,
+                                    onOpenCompanion = { showCompanionDialog.value = true },
+                                    onOpenTaskCenter = { showTaskCenter = true },
+                                    glassOn = glassOn && !materialOn && !liveGlassOn,
+                                    materialOn = materialOn || liveGlassOn
+                                )
+                            }
                         }
-                    }
+                    )
                     }
                 }
             } else {
@@ -499,19 +525,24 @@ fun main() = application {
                 if (materialOn) {
                     MaterialField(Modifier.fillMaxSize(), linesOnly = liveGlassOn)
                 }
-                Column(Modifier.fillMaxSize()) {
-                    SlimSearchBar(
-                        vm = vm,
-                        searchFocusRequester = searchFocusRequester,
-                        onOpenCompanion = { showCompanionDialog.value = true },
-                        onOpenTaskCenter = { showTaskCenter = true },
-                        glassOn = glassOn && !materialOn && !liveGlassOn,
-                        materialOn = materialOn || liveGlassOn
-                    )
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        App(vm, sharedThemeState)
+                App(
+                    vm,
+                    sharedThemeState,
+                    searchFocusRequester,
+                    onOpenTaskCenter = { showTaskCenter = true },
+                    header = { framePortrait ->
+                        if (!framePortrait) {
+                            SlimSearchBar(
+                                vm = vm,
+                                searchFocusRequester = searchFocusRequester,
+                                onOpenCompanion = { showCompanionDialog.value = true },
+                                onOpenTaskCenter = { showTaskCenter = true },
+                                glassOn = glassOn && !materialOn && !liveGlassOn,
+                                materialOn = materialOn || liveGlassOn
+                            )
+                        }
                     }
-                }
+                )
                 }
             }
             // iOS 伴随 App 配对对话框（保持与主窗口主题一致）
@@ -530,7 +561,7 @@ fun main() = application {
                 vm = vm,
                 onDismiss = { showTaskCenter = false },
                 modifier = if (borderless && !isMaximized) {
-                    Modifier.clip(RoundedCornerShape(14.dp))
+                    Modifier.clip(RoundedCornerShape(corner))
                 } else {
                     Modifier
                 }
@@ -637,6 +668,63 @@ private fun pmclWindowTitle(): String {
     val version = info.binaryVersion()
     val base = if (version.isBlank()) "PMCL" else "PMCL $version"
     return if (info.channel() == "release") base else "$base (非发行版本)"
+}
+
+/**
+ * 竖屏只留一条可拖拽的窗口按钮。搜索和任务铃在竖屏主界面里。
+ */
+@Composable
+private fun FrameWindowScope.PortraitWindowChrome(
+    isDragging: MutableState<Boolean>,
+    onClose: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().height(32.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Spacer(Modifier.weight(1f).fillMaxHeight().then(windowDragModifier(isDragging)))
+        IconButton(
+            onClick = { window.extendedState = Frame.ICONIFIED },
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(Icons.Filled.Minimize, contentDescription = "最小化", modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Filled.Close, contentDescription = "关闭", modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+/** 竖屏贴近参考图的大圆角。横屏维持原来的 14dp。 */
+private fun windowCornerRadius(portrait: Boolean) = if (portrait) 22.dp else 14.dp
+
+/**
+ * RoundRectangle2D 的后两个参数是角弧直径。窗口尺寸用的是 dp 数值，
+ * 直径要取半径的两倍，否则边框只剩一半圆角，看起来像直角。
+ */
+private fun roundWindow(width: Int, height: Int, portrait: Boolean): RoundRectangle2D.Double {
+    val radius = if (portrait) 22.0 else 14.0
+    return RoundRectangle2D.Double(
+        0.0, 0.0,
+        width.toDouble(), height.toDouble(),
+        radius * 2.0, radius * 2.0
+    )
+}
+
+private const val WINDOW_MIN_W = 420
+private const val WINDOW_MIN_H = 600
+
+/** 越过正方形再留一点，避免贴着对角线来回拖时两种布局来回跳。 */
+private fun windowIsPortrait(width: Int, height: Int, currentlyPortrait: Boolean): Boolean {
+    return if (currentlyPortrait) height + 32 > width else height > width + 32
+}
+
+private data class WindowBox(val minW: Int, val minH: Int, val width: Int, val height: Int)
+
+private fun windowBox(portrait: Boolean): WindowBox = if (portrait) {
+    WindowBox(WINDOW_MIN_W, WINDOW_MIN_H, 480, 820)
+} else {
+    WindowBox(WINDOW_MIN_W, WINDOW_MIN_H, 1100, 700)
 }
 
 /**

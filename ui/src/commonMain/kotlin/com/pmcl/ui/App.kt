@@ -12,6 +12,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,7 @@ import com.pmcl.core.plugin.PluginManager
 import com.pmcl.plugin.api.PluginMenuAction
 import com.pmcl.ui.animation.AnimatedNavSidebar
 import com.pmcl.ui.animation.AnimatedPageSwitch
+import com.pmcl.ui.animation.PortraitModeSwitch
 import com.pmcl.ui.animation.EntranceAnimation
 import com.pmcl.ui.animation.SlideInFromStart
 import com.pmcl.ui.desktop.LocalDesktopBridgeOwner
@@ -50,6 +52,8 @@ import com.pmcl.ui.page.MultiplayerPage
 import com.pmcl.ui.page.MusicPage
 import com.pmcl.ui.page.NewsPage
 import com.pmcl.ui.page.PluginPage
+import com.pmcl.ui.page.PortraitPane
+import com.pmcl.ui.page.PortraitShell
 import com.pmcl.ui.page.SavesHubPage
 import com.pmcl.ui.page.ServersPage
 import com.pmcl.ui.page.SettingsPage
@@ -77,7 +81,13 @@ import com.pmcl.ui.widget.PaletteIcons
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 @Composable
-fun App(vm: LauncherViewModel, themeState: ThemeState) {
+fun App(
+    vm: LauncherViewModel,
+    themeState: ThemeState,
+    searchFocusRequester: FocusRequester? = null,
+    onOpenTaskCenter: () -> Unit = {},
+    header: @Composable (Boolean) -> Unit = {},
+) {
     // 直接把 vm.themeState 设为 themeState，让 ViewModel 的 refreshWallpaperColor 能更新它
     SideEffect {
         vm.themeState = themeState
@@ -180,12 +190,12 @@ fun App(vm: LauncherViewModel, themeState: ThemeState) {
                         } else {
                             PmclDesktops(vm, onOpenSettings = {
                                 vm.requestSecondaryNav("settings", "launcher")
-                            }) { MainWindowContent(vm) }
+                            }) { MainWindowContent(vm, searchFocusRequester, onOpenTaskCenter, header) }
                         }
                     } else {
                         PmclDesktops(vm, onOpenSettings = {
                                 vm.requestSecondaryNav("settings", "launcher")
-                            }) { MainWindowContent(vm) }
+                            }) { MainWindowContent(vm, searchFocusRequester, onOpenTaskCenter, header) }
                     }
                     if (!agreementAccepted) {
                         AgreementGateDialog(vm)
@@ -434,7 +444,72 @@ private sealed class NavTarget {
 private val pluginBootstrapDone = java.util.concurrent.atomic.AtomicBoolean(false)
 
 @Composable
-private fun MainWindowContent(vm: LauncherViewModel) {
+private fun LauncherPageBody(vm: LauncherViewModel, current: NavTarget, sectionId: String?) {
+    when (current) {
+        is NavTarget.BuiltIn -> when (current.dest) {
+            NavDestination.Launch      -> LaunchPage(vm)
+            NavDestination.News        -> NewsPage(vm)
+            NavDestination.Tips        -> TipsPage(vm)
+            NavDestination.Multiplayer -> MultiplayerPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.multiplayer.sections.first().id
+            )
+            NavDestination.Servers     -> ServersPage(vm)
+            NavDestination.Friends     -> FriendPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.friends.sections.first().id
+            )
+            NavDestination.Download    -> DownloadHubPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.download.sections.first().id
+            )
+            NavDestination.Content     -> ContentHubPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.content.sections.first().id
+            )
+            NavDestination.Saves       -> SavesHubPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.saves.sections.first().id
+            )
+            NavDestination.Statistics  -> StatisticsPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.statistics.sections.first().id
+            )
+            NavDestination.Accounts    -> AccountsPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.accounts.sections.first().id
+            )
+            NavDestination.Settings    -> SettingsPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.settings.sections.first().id
+            )
+            NavDestination.Terminal    -> TerminalPage(vm)
+            NavDestination.Plugins     -> PluginPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.plugins.sections.first().id
+            )
+            NavDestination.Ecxp        -> EcxpPage(vm)
+            NavDestination.Instances   -> InstancesPage(vm)
+            NavDestination.NbtEditor   -> NbtEditorPage(vm)
+            NavDestination.Music       -> MusicPage(
+                vm,
+                sectionId = sectionId ?: SecondaryNavRegistry.music.sections.first().id
+            )
+        }
+        is NavTarget.PluginPage -> {
+            // 插件页异常留在这一页里，不把主窗口一起带崩。
+            SafePluginPage(current.page)
+        }
+    }
+}
+
+@Composable
+private fun MainWindowContent(
+    vm: LauncherViewModel,
+    searchFocusRequester: FocusRequester?,
+    onOpenTaskCenter: () -> Unit,
+    header: @Composable (Boolean) -> Unit = {},
+) {
     val desktopHost = LocalDesktopHost.current
     val bridgeOwner = LocalDesktopBridgeOwner.current
     val themeState = LocalThemeState.current
@@ -465,6 +540,14 @@ private fun MainWindowContent(vm: LauncherViewModel) {
     fun exitSecondary() {
         if (!drilledIn) return
         // 同一帧切换侧栏和内容，避免旧二级页面在侧栏收起后继续残留形成鬼影
+        drilledIn = false
+        secondarySectionDirection = 0
+        navDirection = -1
+        current = NavTarget.BuiltIn(NavDestination.Launch)
+        secondarySectionId = null
+    }
+
+    fun goHome() {
         drilledIn = false
         secondarySectionDirection = 0
         navDirection = -1
@@ -929,8 +1012,99 @@ private fun MainWindowContent(vm: LauncherViewModel) {
         }
     }
 
+    val portrait by vm.portraitLayout.collectAsState()
+    val portraitFocus = searchFocusRequester ?: remember { FocusRequester() }
+    var portraitDrawer by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
-    Row(Modifier.fillMaxSize()) {
+    PortraitModeSwitch(toPortrait = portrait, modifier = Modifier.fillMaxSize()) { framePortrait ->
+    Column(Modifier.fillMaxSize()) {
+    header(framePortrait)
+    Box(Modifier.weight(1f).fillMaxWidth()) {
+    if (framePortrait) {
+        val shown = current
+        PortraitShell(
+            vm = vm,
+            pane = PortraitPane(
+                home = currentBuiltIn == NavDestination.Launch,
+                payload = shown,
+                title = when (shown) {
+                    is NavTarget.BuiltIn -> I18n.t(shown.dest.labelKey)
+                    is NavTarget.PluginPage -> shown.page.title
+                },
+                sections = secondarySpec?.sections?.filter { it.id !in secondaryHidden }.orEmpty(),
+                sectionId = secondarySectionId,
+                dock = currentBuiltIn,
+            ),
+            stageKey = when (shown) {
+                is NavTarget.BuiltIn -> if (shown.dest == NavDestination.Launch) "home" else shown.dest.route + ":" + (secondarySectionId ?: "root")
+                is NavTarget.PluginPage -> "plugin:${shown.page.pluginId}:${shown.page.id}"
+            },
+            motion = navDirection,
+            searchFocusRequester = portraitFocus,
+            onOpenTaskCenter = onOpenTaskCenter,
+            onBack = {
+                when {
+                    portraitDrawer -> portraitDrawer = false
+                    currentBuiltIn == NavDestination.Content -> {
+                        enterPrimary(NavTarget.BuiltIn(NavDestination.Download), -1)
+                        secondarySectionId = null
+                        navDirection = -1
+                    }
+                    secondarySectionId != null && currentBuiltIn in listOf(
+                        NavDestination.Settings,
+                        NavDestination.Download,
+                        NavDestination.Accounts
+                    ) -> {
+                        secondarySectionId = null
+                        navDirection = -1
+                    }
+                    else -> goHome()
+                }
+            },
+            onSelectSection = { id ->
+                val spec = secondarySpec ?: return@PortraitShell
+                selectSecondarySection(spec, id)
+                navDirection = 1
+            },
+            onOpen = { dest, section ->
+                portraitDrawer = false
+                enterPrimary(NavTarget.BuiltIn(dest), 1)
+                secondarySectionId = section
+                navDirection = 1
+            },
+            drawerOpen = portraitDrawer,
+            onDismissDrawer = { portraitDrawer = false },
+            onDock = { dest ->
+                if (dest == NavDestination.Instances) {
+                    if (portraitDrawer) {
+                        portraitDrawer = false
+                    } else {
+                        if (currentBuiltIn != NavDestination.Launch) goHome()
+                        portraitDrawer = true
+                    }
+                } else if (currentBuiltIn == dest && secondarySectionId == null && !portraitDrawer) {
+                    goHome()
+                } else {
+                    portraitDrawer = false
+                    val order = listOf(
+                        NavDestination.Settings,
+                        NavDestination.Download,
+                        NavDestination.Instances,
+                        NavDestination.Accounts
+                    )
+                    val from = order.indexOf(currentBuiltIn)
+                    val to = order.indexOf(dest)
+                    val dir = if (from >= 0 && to >= 0 && to < from) -1 else 1
+                    enterPrimary(NavTarget.BuiltIn(dest), dir)
+                    if (dest == NavDestination.Settings || dest == NavDestination.Download || dest == NavDestination.Accounts) {
+                        secondarySectionId = null
+                    }
+                }
+            },
+            snackbarHostState = snackbarHostState,
+            page = { target, section -> LauncherPageBody(vm, target, section) }
+        )
+    } else Row(Modifier.fillMaxSize()) {
         SlideInFromStart(delayMs = 0, durationMs = 400) {
             // 玻璃主题：侧边栏分层渲染 —— 底层独立模糊背景层（只画颜色），
             // 上层 NavigationRail / SecondaryNavRail 透明背景 + 清晰文字图标。
@@ -1078,63 +1252,7 @@ private fun MainWindowContent(vm: LauncherViewModel) {
                         navDirection
                     }
                     AnimatedPageSwitch(targetState = pageSwitchKey, direction = contentDirection) {
-                        when (val target = current) {
-                            is NavTarget.BuiltIn -> when (target.dest) {
-                                NavDestination.Launch      -> LaunchPage(vm)
-                                NavDestination.News        -> NewsPage(vm)
-                                NavDestination.Tips        -> TipsPage(vm)
-                                NavDestination.Multiplayer -> MultiplayerPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.multiplayer.sections.first().id
-                                )
-                                NavDestination.Servers     -> ServersPage(vm)
-                                NavDestination.Friends     -> FriendPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.friends.sections.first().id
-                                )
-                                NavDestination.Download    -> DownloadHubPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.download.sections.first().id
-                                )
-                                NavDestination.Content     -> ContentHubPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.content.sections.first().id
-                                )
-                                NavDestination.Saves       -> SavesHubPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.saves.sections.first().id
-                                )
-                                NavDestination.Statistics  -> StatisticsPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.statistics.sections.first().id
-                                )
-                                NavDestination.Accounts    -> AccountsPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.accounts.sections.first().id
-                                )
-                                NavDestination.Settings    -> SettingsPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.settings.sections.first().id
-                                )
-                                NavDestination.Terminal    -> TerminalPage(vm)
-                                NavDestination.Plugins     -> PluginPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.plugins.sections.first().id
-                                )
-                                NavDestination.Ecxp        -> EcxpPage(vm)
-                                NavDestination.Instances   -> InstancesPage(vm)
-                                NavDestination.NbtEditor   -> NbtEditorPage(vm)
-                                NavDestination.Music       -> MusicPage(
-                                    vm,
-                                    sectionId = sectionId ?: SecondaryNavRegistry.music.sections.first().id
-                                )
-                            }
-                            is NavTarget.PluginPage -> {
-                                // M36 修复：插件页 content.invoke() 同步调用，插件异常会传播到主窗口导致整个 App 崩溃。
-                                // 用 SafePluginPage 包裹：捕获组合期异常，显示错误占位符而非崩溃主窗口。
-                                SafePluginPage(target.page)
-                            }
-                        }
+                        LauncherPageBody(vm, current, sectionId)
                     }
                 }
                 SnackbarHost(
@@ -1239,6 +1357,9 @@ private fun MainWindowContent(vm: LauncherViewModel) {
             }
         }
     } // close Row
+    }
+    }
+    }
 
         // 命令面板（Cmd/Ctrl+K）：覆盖在主内容之上
         if (desktopHost && paletteVisible) {

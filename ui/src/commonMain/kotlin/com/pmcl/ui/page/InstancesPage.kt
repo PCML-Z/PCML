@@ -1,5 +1,6 @@
 package com.pmcl.ui.page
 import com.pmcl.ui.widget.PmclLazyColumn
+import com.pmcl.ui.widget.pmclHorizontalScroll
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
+import com.pmcl.ui.animation.LocalPortrait
 import com.pmcl.ui.widget.DangerConfirmDialog
 import com.pmcl.core.instance.InstanceInfo
 import com.pmcl.ui.modloader.installPromptLoaderEntries
@@ -61,8 +63,49 @@ fun InstancesPage(vm: LauncherViewModel) {
     LaunchedEffect(Unit) { vm.loadInstances() }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // 顶部标题栏
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        val onImport: () -> Unit = {
+            val fd = FileDialog(java.awt.Frame(), I18n.t("instance.import_select_file"), FileDialog.LOAD)
+            fd.setFilenameFilter { _, name -> name.lowercase().endsWith(".pmcl-instance") || name.lowercase().endsWith(".zip") }
+            fd.isVisible = true
+            val selectedFile = fd.file
+            val selectedDir = fd.directory
+            if (selectedFile != null && selectedDir != null) {
+                val path = java.nio.file.Paths.get(selectedDir, selectedFile)
+                // C10: 勿在 EDT 上 runBlocking；大整合包导入会卡死 UI
+                scope.launch {
+                    importResult = vm.importInstance(path)
+                }
+            }
+        }
+        // 顶部标题栏。竖屏把导入和新建放到下一行，避免和标题挤出窗口。
+        if (LocalPortrait.current) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    I18n.t("instance.title"),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { vm.loadInstances() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("instance.import"), maxLines = 1)
+                }
+                Button(onClick = { showCreateDialog = true }, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(I18n.t("instance.create"), maxLines = 1)
+                }
+            }
+        } else Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 I18n.t("instance.title"),
                 style = MaterialTheme.typography.titleMedium,
@@ -72,24 +115,7 @@ fun InstancesPage(vm: LauncherViewModel) {
             IconButton(onClick = { vm.loadInstances() }) {
                 Icon(Icons.Filled.Refresh, contentDescription = I18n.t("common.refresh"))
             }
-            // 导入实例
-            OutlinedButton(
-                onClick = {
-                    val fd = FileDialog(java.awt.Frame(), I18n.t("instance.import_select_file"), FileDialog.LOAD)
-                    fd.setFilenameFilter { _, name -> name.lowercase().endsWith(".pmcl-instance") || name.lowercase().endsWith(".zip") }
-                    fd.isVisible = true
-                    val selectedFile = fd.file
-                    val selectedDir = fd.directory
-                    if (selectedFile != null && selectedDir != null) {
-                        val path = java.nio.file.Paths.get(selectedDir, selectedFile)
-                        // C10: 勿在 EDT 上 runBlocking；大整合包导入会卡死 UI
-                        scope.launch {
-                            importResult = vm.importInstance(path)
-                        }
-                    }
-                },
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
+            OutlinedButton(onClick = onImport, modifier = Modifier.padding(start = 8.dp)) {
                 Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text(I18n.t("instance.import"))
@@ -333,8 +359,10 @@ private fun InstanceCard(
         colors = glassCardColors(),
         elevation = glassCardElevation()
     ) {
+        val portrait = LocalPortrait.current
+        Column(Modifier.padding(12.dp)) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 图标：优先显示自定义图标，无则按类型显示 Material 图标
@@ -369,13 +397,14 @@ private fun InstanceCard(
 
             // 信息列
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         info.getName(),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Spacer(Modifier.width(8.dp))
                     // 类型标签
@@ -475,8 +504,44 @@ private fun InstanceCard(
                 }
             }
 
-            // 操作按钮组
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (!portrait) InstanceCardActions(
+                info, isLaunching, boundAccountName, vm,
+                onLaunch, onCopy, onRename, onDelete, onBindAccount, onOpenDir, onExport
+            )
+            }
+            if (portrait) {
+                Spacer(Modifier.height(8.dp))
+                InstanceCardActions(
+                    info, isLaunching, boundAccountName, vm,
+                    onLaunch, onCopy, onRename, onDelete, onBindAccount, onOpenDir, onExport
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstanceCardActions(
+    info: InstanceInfo,
+    isLaunching: Boolean,
+    boundAccountName: String?,
+    vm: LauncherViewModel,
+    onLaunch: () -> Unit,
+    onCopy: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onBindAccount: () -> Unit,
+    onOpenDir: () -> Unit,
+    onExport: () -> Unit,
+) {
+            Row(
+                if (LocalPortrait.current) {
+                    Modifier.pmclHorizontalScroll(androidx.compose.foundation.rememberScrollState())
+                } else {
+                    Modifier
+                },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 // 打开目录
                 IconButton(onClick = onOpenDir, modifier = Modifier.size(36.dp)) {
                     Icon(Icons.Filled.Folder, contentDescription = I18n.t("instance.open_dir"),
@@ -547,8 +612,6 @@ private fun InstanceCard(
                     Text(I18n.t("instance.launch"))
                 }
             }
-        }
-    }
 }
 
 /**

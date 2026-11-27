@@ -18,10 +18,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pmcl.core.i18n.I18n
 import com.pmcl.core.compliance.DownloadCompliance
+import com.pmcl.ui.animation.LocalPortrait
 import com.pmcl.ui.animation.TypewriterTitle
 import com.pmcl.core.modloader.ModLoader
 import com.pmcl.core.version.MinecraftVersionIds
@@ -113,8 +115,8 @@ fun DownloadPage(vm: LauncherViewModel) {
         val genuine = account?.isGenuine == true
         LaunchedEffect(Unit) { vm.refreshCompliance() }
 
-        // Tab 选择
-        TabRow(selectedTabIndex = tab) {
+        // Tab 选择。竖屏列窄，标签改成可横滑，避免八个名字挤在一行里。
+        val loaderTabs: @Composable () -> Unit = {
             listOf(
                 "Vanilla", "Fabric", "Quilt", "Forge", "NeoForge", "Forbric", "ECXP-Forbric+",
                 I18n.t("native.tab")
@@ -131,8 +133,13 @@ fun DownloadPage(vm: LauncherViewModel) {
                         }
                         vm.listModLoaderVersions(downloadTabLoader(i), game)
                     }
-                }) { Text(label, Modifier.padding(12.dp), maxLines = 1) }
+                }) { Text(label, Modifier.padding(horizontal = 12.dp, vertical = 10.dp), maxLines = 1) }
             }
+        }
+        if (LocalPortrait.current) {
+            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) { loaderTabs() }
+        } else {
+            TabRow(selectedTabIndex = tab) { loaderTabs() }
         }
 
         Spacer(Modifier.height(16.dp))
@@ -223,7 +230,32 @@ fun DownloadPage(vm: LauncherViewModel) {
         }
 
         // 版本输入
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (LocalPortrait.current) {
+            OutlinedTextField(
+                value = selectedGameVersion,
+                onValueChange = { selectedGameVersion = it },
+                label = { Text(I18n.t("download.mc_version")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (tab > 0) {
+                    Button(onClick = {
+                        vm.listModLoaderVersions(downloadTabLoader(tab), selectedGameVersion, forceRefresh = true)
+                    }) { Text(I18n.t("download.fetch_versions")) }
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    I18n.t("download.status", status),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        } else Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = selectedGameVersion,
                 onValueChange = { selectedGameVersion = it },

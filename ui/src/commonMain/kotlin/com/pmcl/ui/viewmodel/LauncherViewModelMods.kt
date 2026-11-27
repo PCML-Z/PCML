@@ -1,6 +1,7 @@
 package com.pmcl.ui.viewmodel
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -472,14 +473,27 @@ fun LauncherViewModel.installMod(file: ModFile, gameVersion: String) {
  * 主模组与递归依赖整条链提交到下载队列执行（进度、暂停、取消、并发限制与单模组任务一致），
  * 任务结束后回填依赖结果供弹窗展示。
  */
+internal fun marketDownloadKey(file: ModFile): String {
+    val id = file.fileId?.takeIf { it.isNotBlank() } ?: file.fileName.orEmpty()
+    return file.source.orEmpty() + "/" + id
+}
+
+private fun MutableStateFlow<Set<String>>.claim(key: String): Boolean {
+    while (true) {
+        val current = value
+        if (key in current) return false
+        if (compareAndSet(current, current + key)) return true
+    }
+}
+
 fun LauncherViewModel.installModWithDeps(
     file: ModFile,
     gameVersion: String,
     versionId: String? = null,
     instanceId: String? = null
 ) {
-    if (_installingDeps.value) return
-    _installingDeps.value = true
+    val fileKey = marketDownloadKey(file)
+    if (!_installingDepFiles.claim(fileKey)) return
     _depInstallResult.value = null
     initDownloadQueue()
     val vid = versionId ?: _selectedVersion.value
@@ -509,7 +523,7 @@ fun LauncherViewModel.installModWithDeps(
         } catch (e: Throwable) {
             _status.value = I18n.t("status.install_failed", e.message ?: I18n.t("common.unknown"))
         } finally {
-            _installingDeps.value = false
+            _installingDepFiles.value = _installingDepFiles.value - fileKey
         }
     }
 }

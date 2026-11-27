@@ -36,6 +36,19 @@ fun TypewriterTitle(
     minCharDelayMs: Long = 12L,
     maxDurationMs: Long = 520L,
 ) {
+    if (LocalPortrait.current && LocalPortraitOwnsTitle.current) return
+    if (LocalPortrait.current) {
+        Text(
+            text = text,
+            modifier = modifier,
+            style = style,
+            fontWeight = fontWeight,
+            color = color,
+            maxLines = maxLines,
+            overflow = overflow
+        )
+        return
+    }
     val chars = remember(text) { text.toList() }
     var visibleCount by remember(text) { mutableIntStateOf(0) }
 

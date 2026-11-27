@@ -518,7 +518,8 @@ fun TopBarSearchField(
     modifier: Modifier = Modifier,
     vm: LauncherViewModel,
     focusRequester: FocusRequester,
-    compact: Boolean = false
+    compact: Boolean = false,
+    pill: Boolean = false,
 ) {
     val allItems = buildSearchIndex(vm)
     var query by remember { mutableStateOf("") }
@@ -539,7 +540,9 @@ fun TopBarSearchField(
     }
 
     // 聚焦时背景色动画过渡
-    val bgTarget = if (compact) {
+    val bgTarget = if (pill) {
+        if (isFocused) Color.White else Color(0xFFF3F5F8)
+    } else if (compact) {
         if (isFocused) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
     } else {
@@ -560,10 +563,10 @@ fun TopBarSearchField(
         label = "searchIcon"
     )
 
-    val height = if (compact) 30.dp else 44.dp
-    val cornerRadius = if (compact) 8.dp else 12.dp
-    val iconSize = if (compact) 14.dp else 18.dp
-    val fontSize = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium
+    val height = if (pill) 34.dp else if (compact) 30.dp else 44.dp
+    val cornerRadius = if (pill) 17.dp else if (compact) 8.dp else 12.dp
+    val iconSize = if (pill) 16.dp else if (compact) 14.dp else 18.dp
+    val fontSize = if (pill) MaterialTheme.typography.bodySmall else if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium
     val textColor = if (compact) MaterialTheme.colorScheme.onSurface
                     else MaterialTheme.colorScheme.onSurface
 

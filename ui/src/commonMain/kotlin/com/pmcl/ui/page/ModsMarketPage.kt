@@ -67,6 +67,7 @@ import com.pmcl.core.version.MinecraftVersionIds
 import com.pmcl.core.version.ModLoaders
 import com.pmcl.core.version.ShaderLoaders
 import com.pmcl.ui.animation.AnimatedSegmentedSelector
+import com.pmcl.ui.animation.LocalPortrait
 import com.pmcl.ui.animation.MotionTokens
 import com.pmcl.ui.theme.glassContainerColor
 import com.pmcl.ui.theme.glassSurfaceVariantColor
@@ -81,6 +82,7 @@ import com.pmcl.ui.viewmodel.closeModDetail
 import com.pmcl.ui.viewmodel.listProjectFiles
 import com.pmcl.ui.viewmodel.refreshInstalledMods
 import com.pmcl.ui.viewmodel.installModWithDeps
+import com.pmcl.ui.viewmodel.marketDownloadKey
 import com.pmcl.ui.viewmodel.clearDepInstallResult
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +106,7 @@ private val MarketFilterHeight = 36.dp
 private val MarketFilterShape = RoundedCornerShape(8.dp)
 
 @Composable
-fun ModsMarketPage(vm: LauncherViewModel) {
+fun ModsMarketPage(vm: LauncherViewModel, initialProjectType: String = "") {
     val results by vm.marketResults.collectAsState()
     val total by vm.marketTotal.collectAsState()
     val loading by vm.marketLoading.collectAsState()
@@ -123,8 +125,8 @@ fun ModsMarketPage(vm: LauncherViewModel) {
 
     var query by remember { mutableStateOf("") }
     var gameVersion by remember { mutableStateOf(seeded.gameVersion) }
-    var loader by remember { mutableStateOf(seeded.loader) }
-    var projectType by remember { mutableStateOf("") }
+    var loader by remember { mutableStateOf(loaderForMarketType(initialProjectType, seeded.loader)) }
+    var projectType by remember { mutableStateOf(initialProjectType) }
     var sort by remember { mutableStateOf("default") }
     var sourceTab by remember { mutableStateOf(TAB_AGGREGATE) }
     var pageIndex by remember { mutableStateOf(0) }
@@ -455,6 +457,7 @@ private fun MarketTabRow(
     onSelectGame: () -> Unit,
     onSelectSource: (Int) -> Unit
 ) {
+    val portrait = LocalPortrait.current
     AnimatedSegmentedSelector(
         items = listOf(
             I18n.t("market.tab.game"),
@@ -469,7 +472,8 @@ private fun MarketTabRow(
             if (index == 0) onSelectGame() else onSelectSource(index)
         },
         modifier = Modifier.fillMaxWidth(),
-        fillWidth = true,
+        fillWidth = !portrait,
+        scrollable = portrait,
         height = 36.dp
     )
 }
@@ -1886,7 +1890,7 @@ private fun ColumnScope.FileListPane(
     onShowAll: () -> Unit,
     onToggleShowAll: () -> Unit
 ) {
-    val installingDeps by vm.installingDeps.collectAsState()
+    val installingDepFiles by vm.installingDepFiles.collectAsState()
     val modpackBusy by vm.modpackBusy.collectAsState()
     val modpack = contentKind == "modpack"
     var pendingDownload by remember { mutableStateOf<PendingModDownload?>(null) }
@@ -2031,7 +2035,7 @@ private fun ColumnScope.FileListPane(
                 }) { i ->
                     FileRow(
                         displayFiles[i],
-                        installingDeps,
+                        marketDownloadKey(displayFiles[i]) in installingDepFiles,
                         modpack = modpack,
                         modpackBusy = modpackBusy,
                         showDeps = contentKind == "mod"
@@ -2425,7 +2429,7 @@ private fun instanceBelongsToVersion(
 @Composable
 private fun FileRow(
     f: ModFile,
-    installingDeps: Boolean,
+    installingThisFile: Boolean,
     modpack: Boolean = false,
     modpackBusy: Boolean = false,
     showDeps: Boolean = true,
@@ -2480,9 +2484,9 @@ private fun FileRow(
                     Spacer(Modifier.width(8.dp))
                     MarketOutlinedButton(
                         onClick = { onRequestDownload(f, true, cardRect) },
-                        enabled = !installingDeps
+                        enabled = !installingThisFile
                     ) {
-                        if (installingDeps) {
+                        if (installingThisFile) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(14.dp),
                                 strokeWidth = 2.dp
