@@ -37,21 +37,22 @@ data class ManagedProjection(
  */
 
 private fun LauncherViewModel.resourcePackManager(): ResourcePackManager {
-    val game = if (contentTarget.value != null) contentGameDir() else null
-    return if (game != null) ResourcePackManager(game) else core.resourcePacks()
+    if (contentTarget.value != null) return ResourcePackManager(requireContentGameDir())
+    return core.resourcePacks()
 }
 
 private fun LauncherViewModel.shaderPackManager(): ShaderPackManager {
-    val game = if (contentTarget.value != null) contentGameDir() else null
-    return if (game != null) ShaderPackManager(game) else core.shaderPacks()
+    if (contentTarget.value != null) return ShaderPackManager(requireContentGameDir())
+    return core.shaderPacks()
 }
 
-private fun LauncherViewModel.refreshResourcePacksIn(dir: Path, source: String) {
+private fun LauncherViewModel.refreshResourcePacksIn(dir: Path, source: String, stamp: Long) {
     scope.launch {
         try {
             val packs = withContext(Dispatchers.IO) {
                 resourcePackManager().list(dir, source)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _resourcePacks.value = packs
             _status.value = I18n.t("status.resource_packs_scanned", packs.size)
         } catch (e: Throwable) {
@@ -60,12 +61,13 @@ private fun LauncherViewModel.refreshResourcePacksIn(dir: Path, source: String) 
     }
 }
 
-private fun LauncherViewModel.refreshShaderPacksIn(dir: Path, source: String) {
+private fun LauncherViewModel.refreshShaderPacksIn(dir: Path, source: String, stamp: Long) {
     scope.launch {
         try {
             val packs = withContext(Dispatchers.IO) {
                 shaderPackManager().list(dir, source)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _shaderPacks.value = packs
             _status.value = I18n.t("status.shader_packs_scanned", packs.size)
         } catch (e: Throwable) {
@@ -91,12 +93,18 @@ internal fun LauncherViewModel.contentSourceLabelFor(dir: java.nio.file.Path, su
 
 /** 数据包页只列出当前内容目标里的存档。 */
 fun LauncherViewModel.refreshContentWorlds() {
-    val saves = contentGameDir()?.resolve("saves") ?: return
+    val stamp = contentScanStamp()
+    val saves = contentGameDir()?.resolve("saves")
+    if (saves == null) {
+        if (contentTarget.value != null && contentScanCurrent(stamp)) _contentWorlds.value = emptyList()
+        return
+    }
     scope.launch {
         try {
             val list = withContext(Dispatchers.IO) {
                 core.worlds().listWorlds(saves, saves.parent?.fileName?.toString() ?: "")
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _contentWorlds.value = list
             _status.value = I18n.t("status.worlds_scanned", list.size)
         } catch (e: Throwable) {
@@ -535,9 +543,14 @@ fun LauncherViewModel.openRecordingsDir() {
 // ============ 资源包 ============
 
 fun LauncherViewModel.refreshResourcePacks() {
+    val stamp = contentScanStamp()
     if (contentTarget.value != null) {
-        val game = contentGameDir() ?: return
-        refreshResourcePacksIn(game.resolve("resourcepacks"), game.fileName?.toString() ?: "")
+        val game = contentGameDir()
+        if (game == null) {
+            if (contentScanCurrent(stamp)) _resourcePacks.value = emptyList()
+            return
+        }
+        refreshResourcePacksIn(game.resolve("resourcepacks"), game.fileName?.toString() ?: "", stamp)
         return
     }
     scope.launch {
@@ -587,6 +600,7 @@ fun LauncherViewModel.refreshResourcePacks() {
                 }
                 Pair(all, dirErrors)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _resourcePacks.value = list.first
             _status.value = if (list.second > 0) {
                 I18n.t("status.resource_packs_scanned_partial", list.first.size, list.second)
@@ -730,9 +744,14 @@ fun LauncherViewModel.batchDeleteResourcePacks(packs: List<ResourcePackManager.P
 // ============ 光影包 ============
 
 fun LauncherViewModel.refreshShaderPacks() {
+    val stamp = contentScanStamp()
     if (contentTarget.value != null) {
-        val game = contentGameDir() ?: return
-        refreshShaderPacksIn(game.resolve("shaderpacks"), game.fileName?.toString() ?: "")
+        val game = contentGameDir()
+        if (game == null) {
+            if (contentScanCurrent(stamp)) _shaderPacks.value = emptyList()
+            return
+        }
+        refreshShaderPacksIn(game.resolve("shaderpacks"), game.fileName?.toString() ?: "", stamp)
         return
     }
     scope.launch {
@@ -781,6 +800,7 @@ fun LauncherViewModel.refreshShaderPacks() {
                 }
                 Pair(all, dirErrors)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _shaderPacks.value = list.first
             _status.value = if (list.second > 0) {
                 I18n.t("status.shader_packs_scanned_partial", list.first.size, list.second)
@@ -950,6 +970,7 @@ fun LauncherViewModel.clearActiveShaderPack() {
 // ============ 投影 ============
 
 fun LauncherViewModel.refreshProjections() {
+    val stamp = contentScanStamp()
     scope.launch {
         try {
             val list = withContext(Dispatchers.IO) {
@@ -991,6 +1012,7 @@ fun LauncherViewModel.refreshProjections() {
                 all.sortBy { it.title.lowercase() }
                 Pair(all, dirErrors)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _projections.value = list.first
             _status.value = if (list.second > 0) {
                 I18n.t("status.projections_scanned_partial", list.first.size, list.second)
@@ -1106,8 +1128,7 @@ private fun LauncherViewModel.projectionDirs(): List<Path> {
 
 private fun LauncherViewModel.projectionImportDir(): Path {
     if (contentTarget.value != null) {
-        val game = contentGameDir()
-        if (game != null) return VersionGameFiles.directory(game, VersionGameFiles.SCHEMATICS)
+        return VersionGameFiles.directory(requireContentGameDir(), VersionGameFiles.SCHEMATICS)
     }
     val versionId = _selectedVersion.value
     if (!versionId.isNullOrBlank()) {

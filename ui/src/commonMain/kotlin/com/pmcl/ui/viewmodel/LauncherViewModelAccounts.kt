@@ -26,6 +26,7 @@ internal fun LauncherViewModel.loadSavedAccount() {
             val store = withContext(Dispatchers.IO) {
                 core.auth().loadStore(accountFile)
             }
+            accountSnapshotTrusted.set(true)
             _accounts.value = store.getAccounts()
             val sel = store.getSelected().orElse(null)
             _account.value = sel
@@ -56,6 +57,7 @@ internal fun LauncherViewModel.loadSavedAccount() {
 /** 持久化整个 AccountStore 到磁盘 */
 @PublishedApi
 internal fun LauncherViewModel.saveStore(store: AccountStore) {
+    accountSnapshotTrusted.set(true)
     _accounts.value = store.getAccounts()
     _account.value = store.getSelected().orElse(null)
     // 同步当前账户到好友身份系统（基于 UUID 派生身份，切换数据集）

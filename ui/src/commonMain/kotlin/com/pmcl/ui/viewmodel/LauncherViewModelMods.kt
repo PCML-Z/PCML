@@ -565,9 +565,14 @@ fun LauncherViewModel.clearDepInstallResult() {
 // ============ 已安装 Mod 扫描 ============
 
 fun LauncherViewModel.refreshInstalledMods() {
+    val stamp = contentScanStamp()
     if (contentTarget.value != null) {
-        val scoped = contentGameDir()?.resolve("mods") ?: return
-        refreshInstalledModsScoped(scoped)
+        val scoped = contentGameDir()?.resolve("mods")
+        if (scoped == null) {
+            if (contentScanCurrent(stamp)) _installedMods.value = emptyList()
+            return
+        }
+        refreshInstalledModsScoped(scoped, stamp)
         return
     }
     // 先读缓存秒开
@@ -576,7 +581,7 @@ fun LauncherViewModel.refreshInstalledMods() {
             val cached = withContext(Dispatchers.IO) {
                 DataCache.load("installed_mods", object : TypeToken<List<ModMeta>>() {})
             }
-            if (cached != null && cached.isNotEmpty() && _installedMods.value.isEmpty()) {
+            if (cached != null && cached.isNotEmpty() && contentScanCurrent(stamp) && _installedMods.value.isEmpty()) {
                 _installedMods.value = cached
             }
         } catch (e: Throwable) {
@@ -661,6 +666,7 @@ fun LauncherViewModel.refreshInstalledMods() {
                 try { core.modTagStore().applyTags(allMods) } catch (_: Throwable) {}
                 allMods
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _installedMods.value = mods
             DataCache.save("installed_mods", mods)
             _status.value = I18n.t("status.mods_scanned", mods.size, modsDirsCount(mods))
@@ -673,7 +679,7 @@ fun LauncherViewModel.refreshInstalledMods() {
 }
 
 /** 只扫描内容管理目标的 mods 目录，不覆盖全量缓存。 */
-private fun LauncherViewModel.refreshInstalledModsScoped(modsDir: java.nio.file.Path) {
+private fun LauncherViewModel.refreshInstalledModsScoped(modsDir: java.nio.file.Path, stamp: Long) {
     scope.launch {
         try {
             val mods = withContext(Dispatchers.IO) {
@@ -693,6 +699,7 @@ private fun LauncherViewModel.refreshInstalledModsScoped(modsDir: java.nio.file.
                 try { core.modTagStore().applyTags(part) } catch (_: Throwable) {}
                 part
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _installedMods.value = mods
             _status.value = I18n.t("status.mods_scanned", mods.size, modsDirsCount(mods))
         } catch (e: Throwable) {
@@ -1100,10 +1107,7 @@ class McmodPendingLinks(
 
 @PublishedApi
 internal fun LauncherViewModel.currentModsDir(): java.nio.file.Path {
-    if (contentTarget.value != null) {
-        val game = contentGameDir()
-        if (game != null) return game.resolve("mods")
-    }
+    if (contentTarget.value != null) return requireContentGameDir().resolve("mods")
     return com.pmcl.core.launch.GameDirResolver(config, preferences)
         .resolveModsDir(_selectedVersion.value, _selectedInstanceId.value)
 }

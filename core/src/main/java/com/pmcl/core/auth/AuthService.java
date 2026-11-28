@@ -329,7 +329,7 @@ public final class AuthService {
             try {
                 root = JsonParser.parseString(raw).getAsJsonObject();
             } catch (Throwable t) {
-                // 解析失败：保留原文件并复制备份，绝不 move 掉唯一副本（防并发写撕裂误杀）
+                // 解析失败：保留原文件并复制备份。不能当成空账号返回，否则退出时会把空列表写回去。
                 System.err.println("[AuthService] 账号文件解析失败（已保留原文件）: " + t.getMessage());
                 try {
                     Path backup = file.resolveSibling(
@@ -339,7 +339,7 @@ public final class AuthService {
                 } catch (Throwable backupErr) {
                     System.err.println("[AuthService] 备份可疑文件失败: " + backupErr.getMessage());
                 }
-                return new AccountStore(new ArrayList<>(), null);
+                throw new IOException("账号文件无法解析", t);
             }
             List<Account> accounts = new ArrayList<>();
             List<String> corrupted = new ArrayList<>();

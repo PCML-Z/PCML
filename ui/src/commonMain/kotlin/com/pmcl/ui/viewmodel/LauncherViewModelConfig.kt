@@ -15,10 +15,7 @@ import com.pmcl.core.gamecontent.ConfigFileManager
 
 /** 已选内容目标时用该目录的 config/，不创建、不灌入。否则沿用启动所选版本。 */
 fun LauncherViewModel.getConfigDir(): java.nio.file.Path {
-    if (contentTarget.value != null) {
-        val game = contentGameDir()
-        if (game != null) return game.resolve("config")
-    }
+    if (contentTarget.value != null) return requireContentGameDir().resolve("config")
     val versionId = _selectedVersion.value
     if (versionId != null) {
         return com.pmcl.core.launch.GameDirResolver(config, preferences)
@@ -55,12 +52,14 @@ fun LauncherViewModel.createConfigFileManager(): ConfigFileManager {
 
 /** 刷新配置文件列表 */
 fun LauncherViewModel.refreshConfigFiles(subDir: String = "") {
+    val stamp = contentScanStamp()
     scope.launch {
         try {
             val manager = createConfigFileManager()
             val files = withContext(Dispatchers.IO) {
                 manager.listFiles(subDir)
             }
+            if (!contentScanCurrent(stamp)) return@launch
             _configFiles.value = files
             _configCurrentDir.value = subDir
         } catch (e: Throwable) {

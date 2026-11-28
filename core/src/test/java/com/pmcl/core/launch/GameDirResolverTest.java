@@ -99,6 +99,34 @@ class GameDirResolverTest {
     }
 
     @Test
+    void peekDoesNotCreateIsolationDirOrCopyFiles() throws Exception {
+        Path work = tmp.resolve("pmcl");
+        Files.createDirectories(work.resolve("versions").resolve("1.20.1"));
+        Files.writeString(work.resolve("versions").resolve("1.20.1").resolve("1.20.1.json"),
+                "{\"id\":\"1.20.1\"}", StandardCharsets.UTF_8);
+        Files.createDirectories(work.resolve("mods"));
+        Files.writeString(work.resolve("mods").resolve("fabric-api.jar"), "jar", StandardCharsets.UTF_8);
+
+        Preferences pref = new Preferences(work.resolve("preferences.json"));
+        pref.setVersionIsolation(true);
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(work), pref);
+
+        Path peeked = resolver.peekGameDir("1.20.1");
+        assertEquals(work.resolve("instances").resolve("1.20.1"), peeked);
+        assertFalse(Files.exists(peeked));
+        assertTrue(Files.isRegularFile(work.resolve("mods").resolve("fabric-api.jar")));
+        assertFalse(Files.exists(work.resolve("instances")));
+    }
+
+    @Test
+    void peekRejectsEscapingVersionId() {
+        Preferences pref = new Preferences(tmp.resolve("preferences.json"));
+        GameDirResolver resolver = new GameDirResolver(new LauncherConfig(tmp), pref);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> resolver.peekGameDir("../outside"));
+    }
+
+    @Test
     void resolveModsDirFindsLegacyNamedInstanceByJsonId() throws Exception {
         Path work = tmp.resolve("pmcl");
         Path named = work.resolve("instances").resolve("MyPack");

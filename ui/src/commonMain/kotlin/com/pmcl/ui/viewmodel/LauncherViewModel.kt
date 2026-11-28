@@ -536,6 +536,8 @@ class LauncherViewModel {
 
     /** 退出前把内存里的账号写完。取消协程会丢掉还在排队的保存。 */
     private fun flushAccounts() {
+        // 账号文件没读成功时，内存里是空的。这时写回去会把原来的账号清掉。
+        if (!accountSnapshotTrusted.get()) return
         try {
             runBlocking {
                 withTimeoutOrNull(3_000) {
@@ -556,6 +558,8 @@ class LauncherViewModel {
 
     /** 账号持久化文件 */
     @PublishedApi internal val accountFile = Paths.get(System.getProperty("user.home"), ".pmcl", "accounts.json")
+    /** 只有成功读到账号，或用户主动改过账号之后，退出才允许写 accounts.json。 */
+    @PublishedApi internal val accountSnapshotTrusted = java.util.concurrent.atomic.AtomicBoolean(false)
     @PublishedApi internal val accountLock = Any()
     /** 串行化账号落盘，避免快速切换/删除时乱序覆盖 */
     @PublishedApi internal val accountSaveMutex = kotlinx.coroutines.sync.Mutex()
@@ -2875,6 +2879,7 @@ class LauncherViewModel {
 
     /** 刷新已安装整合包列表 */
     fun refreshModpacks() {
+        val stamp = contentScanStamp()
         scope.launch {
             try {
                 val list = withContext(Dispatchers.IO) {
@@ -2886,6 +2891,7 @@ class LauncherViewModel {
                         else all.filter { it.instanceDir?.toAbsolutePath()?.normalize() == game }
                     }
                 }
+                if (!contentScanCurrent(stamp)) return@launch
                 _modpacks.value = list
             } catch (e: Throwable) {
                 _status.value = I18n.t("status.refresh_modpacks_failed", e.message ?: I18n.t("common.unknown"))
@@ -4408,21 +4414,35 @@ class LauncherViewModel {
     /** 内容页先选定的版本和实例。instanceId 为空表示管理这个版本自己的目录。 */
     private val _contentTarget = MutableStateFlow<ContentManageTarget?>(null)
     val contentTarget: StateFlow<ContentManageTarget?> = _contentTarget.asStateFlow()
+    /** 换目标后，还在跑的旧扫描不能再把结果写回界面。 */
+    private val contentScanGen = java.util.concurrent.atomic.AtomicLong()
+
+    fun contentScanStamp(): Long = contentScanGen.get()
+
+    fun contentScanCurrent(stamp: Long): Boolean = contentScanGen.get() == stamp
 
     fun setContentManageTarget(versionId: String, instanceId: String) {
+        contentScanGen.incrementAndGet()
         _contentTarget.value = ContentManageTarget(versionId, instanceId)
-        _selectedDatapackWorld.value = null
-        _contentWorlds.value = emptyList()
-        _configCurrentDir.value = ""
-        _configFileContent.value = null
-        _currentConfigPath.value = null
-        _configFileDirty.value = false
+        discardContentSnapshots()
     }
 
     fun clearContentManageTarget() {
+        contentScanGen.incrementAndGet()
         _contentTarget.value = null
-        _selectedDatapackWorld.value = null
+        discardContentSnapshots()
+    }
+
+    private fun discardContentSnapshots() {
+        _installedMods.value = emptyList()
+        _resourcePacks.value = emptyList()
+        _shaderPacks.value = emptyList()
+        _projections.value = emptyList()
+        _modpacks.value = emptyList()
         _contentWorlds.value = emptyList()
+        _datapacks.value = emptyList()
+        _selectedDatapackWorld.value = null
+        _configFiles.value = emptyList()
         _configCurrentDir.value = ""
         _configFileContent.value = null
         _currentConfigPath.value = null
@@ -4436,11 +4456,17 @@ class LauncherViewModel {
             if (target.instanceId.isNotBlank()) {
                 val located = core.instances().locateExistingInstanceDir(target.instanceId)
                 if (located != null && java.nio.file.Files.isDirectory(located)) return located
+                return null
             }
             com.pmcl.core.launch.GameDirResolver(config, preferences).peekGameDir(target.versionId)
         } catch (_: Throwable) {
             null
         }
+    }
+
+    /** 已经选定内容目标，但目录不在了。不能改去启动所选的另一个目录。 */
+    internal fun requireContentGameDir(): java.nio.file.Path {
+        return contentGameDir() ?: throw java.io.IOException(I18n.t("content.target.missing"))
     }
 
     @PublishedApi internal val _instanceLaunching = MutableStateFlow<String?>(null)
