@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proxima ML - Minecraft 启动器</title>
+  <meta name="description" content="Proxima ML 是一个开源的 Minecraft 启动器，支持 macOS、Windows 和 Linux。能装版本和模组加载器、管理模组和整合包、开房间联机。">
+  <meta name="theme-color" content="#1d3fb8">
+  <meta property="og:title" content="Proxima ML">
+  <meta property="og:description" content="一个开源的 Minecraft 启动器，支持 macOS、Windows 和 Linux。">  <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <p class="notice">Proxima ML 不是 Minecraft 官方启动器，与 Mojang Studios、Microsoft 没有关系。</p>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="./">
+        <img src="assets/logo.svg" alt="" width="28" height="28">
+        Proxima ML
+      </a>
+      <nav class="nav">
+        <a href="#features">功能</a>
+        <a href="#download">下载</a>
+        <a href="#changelog">更新日志</a>
+        <a href="#faq">常见问题</a>
+        <a href="https://github.com/PCML-Z/PCML">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="hero-head">
+        <div class="hero-text">
+          <h1>Proxima ML</h1>
+          <p class="lead">一个开源的 Minecraft 启动器。装版本、装模组、开房间和朋友联机，都在一个窗口里做完。支持 macOS、Windows 和 Linux。</p>
+          <p class="aside">以前叫 PMCL。由 <a href="https://github.com/peddlejumper">peddlejumper</a> 个人开发，代码全部公开在 GitHub 上。</p>
+        </div>
+        <div class="hero-cta">
+          <div class="actions">
+            <a class="btn" href="#download" data-hero-download>下载</a>
+            <a class="btn plain" href="https://github.com/PCML-Z/PCML">查看源代码</a>
+          </div>
+          <p class="meta" data-hero-meta>当前版本 2.12.0</p>
+        </div>
+      </div>
+
+      <figure class="showreel">
+        <div class="showreel-frame" data-showreel>
+          <video muted loop playsinline preload="auto" poster="assets/video/hero-poster.jpg" aria-label="Proxima ML 宣传片开头片段，没有声音">
+            <source src="assets/video/hero.mp4" type="video/mp4">
+          </video>
+          <button class="showreel-play" type="button" data-play-full>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            看完整宣传片
+            <small>1:07 · 有声音</small>
+          </button>
+        </div>
+        <figcaption>宣传片做的时候还叫 PMCL。也可以<a href="https://www.bilibili.com/video/BV1Bp4j61EDm">去哔哩哔哩看</a>。</figcaption>
+      </figure>
+    </section>
+
+    <section id="features" class="wrap section">
+      <h2>功能</h2>
+
+      <div class="features">
+        <div class="feature">
+          <div class="blocks" aria-hidden="true">
+            <img src="assets/blocks/alpha.png" alt="" width="32" height="32">
+            <img src="assets/blocks/beta.png" alt="" width="32" height="32">
+            <img src="assets/blocks/release.png" alt="" width="32" height="32">
+            <img src="assets/blocks/snapshot.png" alt="" width="32" height="32">
+          </div>
+          <h3>版本和启动</h3>
+          <ul>
+            <li>远古 alpha、beta、正式版和快照都能装</li>
+            <li>模组加载器：Forge、NeoForge、Fabric、Quilt、OptiFine，还有 LiteLoader、Rift 这些老的</li>
+            <li>按游戏版本挑 Java：1.12.2 及以前用 8，1.17 起用 17，1.20.5 起用 21，26 起用 25。电脑上没有就自动下载</li>
+            <li>每个版本可以有自己独立的游戏目录</li>
+            <li>微软账号登录，也可以用离线账号</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <h3>下载</h3>
+          <ul>
+            <li>内置 Modrinth 和 CurseForge 市场，装模组时把依赖一起装上</li>
+            <li>可以导入 .mrpack 整合包</li>
+            <li>下载队列能暂停和重试，每个文件下完都会校验哈希</li>
+            <li>网络被干扰时会换用系统自带的 curl 重新下载</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <h3>内容管理</h3>
+          <ul>
+            <li>模组、整合包、光影包、投影、资源包、数据包、配置文件，各有一页</li>
+            <li>先点进要管的版本和实例，再增删里面的文件，不会碰到别的实例</li>
+            <li>离线账号也能换皮肤</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <h3>存档</h3>
+          <ul>
+            <li>世界和截图会把 HMCL、官方启动器目录里的也一起列出来</li>
+            <li>录屏</li>
+            <li>时间机器：定时备份世界，玩坏了可以退回去</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <h3>联机</h3>
+          <ul>
+            <li>建一个房间，把房间码发给朋友，对方填进去就能进你的世界</li>
+            <li>可选 Terracotta（陶瓦联机）、EasyTier、ConnectX，哪个能连上用哪个</li>
+            <li>不用自己开服务器，也不用设置端口映射</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <h3>其他</h3>
+          <ul>
+            <li>游戏崩溃后会列出可能的原因。配好模型后可以点「AI 修复」</li>
+            <li>插件（.ppk 格式）和内置终端</li>
+            <li>NBT 编辑器、音乐播放器</li>
+            <li>主题色可以从壁纸里取；窗口拉得比宽还高时换成竖屏布局</li>
+            <li>启动时检查更新，安装包要通过 SHA-256 和 Ed25519 签名校验才会安装</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="wrap section">
+      <h2>下载</h2>
+      <div class="dl-head">
+        <p data-release-line>2.12.0</p>
+        <label class="mirror">
+          <input type="checkbox" data-mirror>
+          GitHub 下载慢的话，勾上这个走 gh-proxy.com 镜像
+        </label>
+      </div>
+
+      <table class="dl-table">
+        <thead>
+          <tr><th>系统</th><th>文件</th><th>大小</th></tr>
+        </thead>
+        <tbody data-downloads>
+          <tr><td colspan="3"><a href="https://github.com/PCML-Z/PCML/releases/latest">到 GitHub 下载最新版</a></td></tr>
+        </tbody>
+      </table>
+
+      <ul class="dl-notes">
+        <li>安装包里自带 Java 运行时，所以有三四百 MB，装完不用另外装 Java。</li>
+        <li>Mac 目前只有 Apple 芯片（M 系列）的安装包，Intel Mac 暂时没有。</li>
+        <li>JAR 版本要电脑上有 Java 21，用 <code>java -jar 文件名.jar</code> 打开。</li>
+        <li>装好以后有新版本启动器会提示，不用再回这里下载。</li>
+      </ul>
+    </section>
+
+    <section id="changelog" class="wrap section">
+      <h2>更新日志</h2>
+      <div class="changelog" data-changelog></div>
+      <p><a href="https://github.com/PCML-Z/PCML/releases">在 GitHub 上看所有版本</a></p>
+    </section>
+
+    <section id="faq" class="wrap section">
+      <h2>常见问题</h2>
+      <dl class="faq">
+        <dt>游戏和设置存在哪？</dt>
+        <dd>用户目录下的 <code>.pmcl</code> 文件夹，版本、实例、模组和设置都在里面。</dd>
+
+        <dt>没看到更新提示？</dt>
+        <dd>去「设置 → GitHub Release 同步」看一下，仓库应该填 <code>PCML-Z/PCML</code>。</dd>
+
+        <dt>游戏崩了怎么办？</dt>
+        <dd>先看崩溃窗口里列出的原因，常见的是模组冲突或者 Java 版本不对。解决不了的话，把启动器日志贴到 Issues 里。</dd>
+
+        <dt>在哪反馈问题？</dt>
+        <dd><a href="https://github.com/PCML-Z/PCML/issues">GitHub Issues</a>。</dd>
+      </dl>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <p>
+        <a href="https://github.com/PCML-Z/PCML">源代码</a> ·
+        <a href="https://github.com/PCML-Z/PCML/blob/main/USER_AGREEMENT.txt">用户协议</a> ·
+        <a href="https://github.com/PCML-Z/PCML/blob/main/DISCLAIMER.txt">免责协议</a> ·
+        <a href="https://github.com/PCML-Z/PCML/blob/main/LICENSE">许可证</a>
+      </p>
+      <p class="small">Minecraft 是 Mojang Studios 的商标。Proxima ML 未获得 Mojang Studios 或 Microsoft 的认可。</p>
+      <p class="small">© 2026 Proxima ML</p>
+    </div>
+  </footer>
+
+  <script src="assets/main.js" defer></script>
+</body>
+</html>
